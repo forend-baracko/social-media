@@ -1,6 +1,5 @@
 export const COLORS = {
-    primary: '#000',
-    text: '#FFF',
+    primary: '#FFF'
 };
 
 export const SPACE = { xs: 4, sm: 8, md: 16, lg: 24, xl: 32 };
