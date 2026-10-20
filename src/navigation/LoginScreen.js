@@ -1,19 +1,27 @@
-import React from "react";
-import { SafeAreaView, View, Text } from 'react-native';
-import { COLORS, SPACE, RADIUS } from './contants/theme.js';
+import React from 'react';
+import { SafeAreaView, View, Text, StyleSheet } from 'react-native';
+import { COLORS, SPACE, RADIUS } from '../constants/theme.js';
 
-const LoginScreen = ({ navigation }) => {
-    <SafeAreaView style={styles.safe}> 
-        <View>
-            <Text>Hello Test</Text>
-        </View>
-    </SafeAreaView>
-}
+const LoginScreen = ({ navigation = null }) => {
+    return (
+        <SafeAreaView style={styles.safe}>
+            <View>
+                <Text style={styles.header}>Hello World</Text>
+            </View>
+        </SafeAreaView>
+    );
+};
 
 const styles = StyleSheet.create({
     safe: {
-        backgroundColor: COLORS.primary
+        flex: 1,
+        backgroundColor: COLORS.primary,
+
+    },
+    header: {
+        color: COLORS.text,
+        padding: SPACE.lg
     }
-})
+});
 
 export default LoginScreen;
