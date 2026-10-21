@@ -1,10 +1,43 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Image } from 'react-native';
+import { COLORS, SPACE } from '../../constants/theme';
 
 export default function PageOne() {
     return (
-        <View>
-            <Text>Page One</Text>
+        <View style={styles.container}>
+            <Image
+                source={require('../../assets/images/spotify-icon.webp')}
+                style={styles.image}
+            />
+            <Text style={styles.title}>Millions of Songs</Text>
+            <Text style={styles.subtitle}>Free on Spotify Clone powered by Audiomack</Text>
         </View>
-    )
+    );
 }
+
+const styles = StyleSheet.create({
+    container: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: SPACE.md,
+    },
+    image: {
+        width: 140,
+        height: 140,
+        resizeMode: 'contain',
+        marginBottom: SPACE.xl,
+    },
+    title: {
+        color: COLORS.textPrimary,
+        fontSize: 28,
+        fontWeight: 'bold',
+        textAlign: 'center',
+        marginBottom: SPACE.sm,
+    },
+    subtitle: {
+        color: COLORS.textSecondary,
+        fontSize: 16,
+        textAlign: 'center',
+        lineHeight: 22,
+    },
+});
