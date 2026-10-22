@@ -1,13 +1,14 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { initializeAuth, getReactNativePersistence } from 'firebase/auth';
+import { initializeAuth, getAuth, getReactNativePersistence } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { FIREBASE_CONFIG } from '../constants/config';
 
 export const isFirebaseConfigured = () => {
-    return (
+    return Boolean(
         FIREBASE_CONFIG.apiKey &&
         FIREBASE_CONFIG.apiKey !== 'YOUR_FIREBASE_API_KEY' &&
+        FIREBASE_CONFIG.apiKey !== 'undefined' &&
         FIREBASE_CONFIG.projectId &&
         FIREBASE_CONFIG.projectId !== 'your-app-id'
     );
@@ -19,10 +20,15 @@ let db = null;
 
 if (isFirebaseConfigured()) {
     try {
-        app = getApps().length === 0 ? initializeApp(FIREBASE_CONFIG) : getApp();
-        auth = initializeAuth(app, {
-            persistence: getReactNativePersistence(AsyncStorage),
-        });
+        if (getApps().length === 0) {
+            app = initializeApp(FIREBASE_CONFIG);
+            auth = initializeAuth(app, {
+                persistence: getReactNativePersistence(AsyncStorage),
+            });
+        } else {
+            app = getApp();
+            auth = getAuth(app);
+        }
         db = getFirestore(app);
     } catch (error) {
         console.warn('Firebase initialization error:', error);

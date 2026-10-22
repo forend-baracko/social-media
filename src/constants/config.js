@@ -11,9 +11,7 @@ import {
 
 /**
  * Application Configuration
- *
  * Reads values securely from your local .env file.
- * The .env file is git-ignored and will not be pushed to GitHub.
  */
 export const FIREBASE_CONFIG = {
     apiKey: FIREBASE_API_KEY || "YOUR_FIREBASE_API_KEY",
@@ -26,14 +24,13 @@ export const FIREBASE_CONFIG = {
 
 /**
  * Audiomack API Configuration
- *
  * When useMockData is true (or when AUDIOMACK_API_KEY is empty),
  * the app uses high-fidelity offline mock music data.
  */
 export const AUDIOMACK_CONFIG = {
     baseUrl: 'https://api.audiomack.com/v1',
     apiKey: AUDIOMACK_API_KEY || '',
-    useMockData: !AUDIOMACK_API_KEY,
+    useMockData: !AUDIOMACK_API_KEY || AUDIOMACK_API_KEY === 'undefined',
 };
 
 /**

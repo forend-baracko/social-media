@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1059014495317",
+    "project_id": "spotibai-27fd7",
+    "storage_bucket": "spotibai-27fd7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1059014495317:android:5b9f3d05783c259e6a58dc",
+        "android_client_info": {
+          "package_name": "spotibisaya.powertrio"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBuaoqYjIiHxzrpV4T8bMxjRaV1fT2bu8U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
