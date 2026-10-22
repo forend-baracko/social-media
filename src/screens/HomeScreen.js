@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     SafeAreaView,
     View,
@@ -15,14 +15,25 @@ import {
 import { COLORS, SPACE, RADIUS } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { getTrendingMusic, searchMusic } from '../services/audiomackService';
+import BottomNavBar, { TABS } from '../components/BottomNavBar';
+import ProfileDrawer from '../components/ProfileDrawer';
+import FullScreenPlayerModal from '../components/FullScreenPlayerModal';
+import { LibraryView, CreateView } from '../components/LibraryAndCreateViews';
 
 const HomeScreen = () => {
     const { user, userProfile, logout, isConfigured } = useAuth();
+    const [activeTab, setActiveTab] = useState(TABS.HOME);
+
+    // Track states
     const [searchQuery, setSearchQuery] = useState('');
     const [tracks, setTracks] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [currentTrack, setCurrentTrack] = useState(null);
     const [isPlaying, setIsPlaying] = useState(false);
+
+    // Modals state
+    const [isProfileDrawerOpen, setIsProfileDrawerOpen] = useState(false);
+    const [isPlayerModalOpen, setIsPlayerModalOpen] = useState(false);
 
     const loadTrending = useCallback(async () => {
         setIsLoading(true);
@@ -92,10 +103,35 @@ const HomeScreen = () => {
         setIsPlaying(true);
     };
 
+    const handleNextTrack = () => {
+        if (!tracks || tracks.length === 0 || !currentTrack) return;
+        const currentIndex = tracks.findIndex((t) => t.id === currentTrack.id);
+        const nextIndex = (currentIndex + 1) % tracks.length;
+        setCurrentTrack(tracks[nextIndex]);
+        setIsPlaying(true);
+    };
+
+    const handlePreviousTrack = () => {
+        if (!tracks || tracks.length === 0 || !currentTrack) return;
+        const currentIndex = tracks.findIndex((t) => t.id === currentTrack.id);
+        const prevIndex = (currentIndex - 1 + tracks.length) % tracks.length;
+        setCurrentTrack(tracks[prevIndex]);
+        setIsPlaying(true);
+    };
+
+    const upcomingQueue = useMemo(() => {
+        if (!tracks || tracks.length === 0 || !currentTrack) return [];
+        const currentIndex = tracks.findIndex((t) => t.id === currentTrack.id);
+        if (currentIndex === -1) return tracks.slice(0, 5);
+        return [...tracks.slice(currentIndex + 1), ...tracks.slice(0, currentIndex)];
+    }, [tracks, currentTrack]);
+
     const displayName =
         userProfile?.displayName ||
         user?.displayName ||
         (user?.email ? user.email.split('@')[0] : 'Music Lover');
+
+    const photoURL = userProfile?.photoURL || user?.photoURL || null;
 
     const renderTrackItem = ({ item }) => {
         const isSelected = currentTrack?.id === item.id;
@@ -128,25 +164,113 @@ const HomeScreen = () => {
         );
     };
 
+    const renderMainContent = () => {
+        if (activeTab === TABS.LIBRARY) {
+            return <LibraryView />;
+        }
+
+        if (activeTab === TABS.CREATE) {
+            return <CreateView />;
+        }
+
+        // Both Home & Search tabs display music feeds with search capability
+        return (
+            <View style={styles.tabContentContainer}>
+                {/* Search Bar */}
+                <View style={styles.searchContainer}>
+                    <TextInput
+                        style={styles.searchInput}
+                        placeholder={
+                            activeTab === TABS.SEARCH
+                                ? "What do you want to listen to?"
+                                : "Search Audiomack songs, artists..."
+                        }
+                        placeholderTextColor={COLORS.textMuted}
+                        value={searchQuery}
+                        onChangeText={handleSearch}
+                        autoCapitalize="none"
+                        clearButtonMode="while-editing"
+                        autoFocus={activeTab === TABS.SEARCH}
+                    />
+                </View>
+
+                {/* Section Title */}
+                <View style={styles.sectionHeader}>
+                    <Text style={styles.sectionTitle}>
+                        {searchQuery.trim()
+                            ? 'Search Results'
+                            : activeTab === TABS.SEARCH
+                            ? 'Top Charts & Genres'
+                            : 'Trending on Audiomack'}
+                    </Text>
+                    <Text style={styles.trackCount}>{tracks.length} tracks</Text>
+                </View>
+
+                {/* Track List */}
+                {isLoading ? (
+                    <View style={styles.loaderContainer}>
+                        <ActivityIndicator size="large" color={COLORS.primary} />
+                        <Text style={styles.loadingText}>Loading Audiomack music...</Text>
+                    </View>
+                ) : (
+                    <FlatList
+                        data={tracks}
+                        keyExtractor={(item) => item.id}
+                        renderItem={renderTrackItem}
+                        contentContainerStyle={styles.listContent}
+                        ListEmptyComponent={
+                            <View style={styles.emptyContainer}>
+                                <Text style={styles.emptyTitle}>No tracks found</Text>
+                                <Text style={styles.emptySubtitle}>Try searching for another artist or song</Text>
+                            </View>
+                        }
+                    />
+                )}
+            </View>
+        );
+    };
+
     return (
         <SafeAreaView style={styles.safe}>
             <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
 
-            {/* Header */}
+            {/* Header with Clickable Profile Picture */}
             <View style={styles.header}>
-                <View>
-                    <Text style={styles.greeting}>Welcome back,</Text>
-                    <Text style={styles.userName}>{displayName}</Text>
-                    <View style={styles.badgeContainer}>
-                        <View
-                            style={[
-                                styles.statusDot,
-                                isConfigured ? styles.statusDotActive : styles.statusDotPending,
-                            ]}
-                        />
-                        <Text style={styles.badgeText}>
-                            {isConfigured ? 'Firebase Sync Active' : 'Firebase Ready'}
+                <View style={styles.headerLeft}>
+                    {/* Profile Picture (Click opens Side Bar Drawer) */}
+                    <TouchableOpacity
+                        style={styles.avatarButton}
+                        activeOpacity={0.8}
+                        onPress={() => setIsProfileDrawerOpen(true)}
+                    >
+                        {photoURL ? (
+                            <Image source={{ uri: photoURL }} style={styles.avatar} />
+                        ) : (
+                            <View style={styles.avatarPlaceholder}>
+                                <Text style={styles.avatarInitial}>
+                                    {displayName.charAt(0).toUpperCase()}
+                                </Text>
+                            </View>
+                        )}
+                        <View style={styles.avatarOnlineDot} />
+                    </TouchableOpacity>
+
+                    <View style={styles.userInfoBox}>
+                        <Text style={styles.greeting}>Welcome back,</Text>
+                        <Text style={styles.userName} numberOfLines={1}>
+                            {displayName}
                         </Text>
+                        <View style={styles.badgeContainer}>
+                            <View
+                                style={[
+                                    styles.statusDot,
+                                    isConfigured ? styles.statusDotActive : styles.statusDotPending,
+                                ]}
+                            />
+                            <Text style={styles.badgeText}>
+                                {isConfigured ? 'Firebase Sync' : 'Ready'}
+                            </Text>
+                        </View>
                     </View>
                 </View>
 
@@ -159,51 +283,18 @@ const HomeScreen = () => {
                 </TouchableOpacity>
             </View>
 
-            {/* Search Bar */}
-            <View style={styles.searchContainer}>
-                <TextInput
-                    style={styles.searchInput}
-                    placeholder="Search Audiomack songs, artists..."
-                    placeholderTextColor={COLORS.textMuted}
-                    value={searchQuery}
-                    onChangeText={handleSearch}
-                    autoCapitalize="none"
-                    clearButtonMode="while-editing"
-                />
+            {/* Tab Body View */}
+            <View style={styles.mainContainer}>
+                {renderMainContent()}
             </View>
 
-            {/* Section Title */}
-            <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>
-                    {searchQuery.trim() ? 'Search Results' : 'Trending on Audiomack'}
-                </Text>
-                <Text style={styles.trackCount}>{tracks.length} tracks</Text>
-            </View>
-
-            {/* Track List */}
-            {isLoading ? (
-                <View style={styles.loaderContainer}>
-                    <ActivityIndicator size="large" color={COLORS.primary} />
-                    <Text style={styles.loadingText}>Loading Audiomack music...</Text>
-                </View>
-            ) : (
-                <FlatList
-                    data={tracks}
-                    keyExtractor={(item) => item.id}
-                    renderItem={renderTrackItem}
-                    contentContainerStyle={styles.listContent}
-                    ListEmptyComponent={
-                        <View style={styles.emptyContainer}>
-                            <Text style={styles.emptyTitle}>No tracks found</Text>
-                            <Text style={styles.emptySubtitle}>Try searching for another artist or song</Text>
-                        </View>
-                    }
-                />
-            )}
-
-            {/* Mini Player */}
+            {/* Mini Player Bar (Clicking anywhere opens Full Screen Player) */}
             {currentTrack && (
-                <View style={styles.playerBar}>
+                <TouchableOpacity
+                    style={styles.playerBar}
+                    activeOpacity={0.92}
+                    onPress={() => setIsPlayerModalOpen(true)}
+                >
                     <Image source={{ uri: currentTrack.artwork }} style={styles.playerArtwork} />
                     <View style={styles.playerDetails}>
                         <Text style={styles.playerTitle} numberOfLines={1}>
@@ -214,17 +305,60 @@ const HomeScreen = () => {
                         </Text>
                     </View>
 
+                    {/* Quick Like / Heart button on mini player */}
+                    <TouchableOpacity
+                        style={styles.miniLikeButton}
+                        activeOpacity={0.7}
+                        onPress={(e) => {
+                            e.stopPropagation();
+                            Alert.alert('Liked Songs', `Saved "${currentTrack.title}" to Liked Songs.`);
+                        }}
+                    >
+                        <Text style={styles.miniLikeIcon}>♡</Text>
+                    </TouchableOpacity>
+
+                    {/* Play/Pause Button on mini player */}
                     <TouchableOpacity
                         style={styles.playButton}
-                        onPress={togglePlay}
+                        onPress={(e) => {
+                            e.stopPropagation();
+                            togglePlay();
+                        }}
                         activeOpacity={0.8}
                     >
                         <Text style={styles.playButtonText}>
                             {isPlaying ? '⏸' : '▶'}
                         </Text>
                     </TouchableOpacity>
-                </View>
+                </TouchableOpacity>
             )}
+
+            {/* Bottom Navigation Bar: Home - Search - Your Library - Create */}
+            <BottomNavBar
+                activeTab={activeTab}
+                onSelectTab={(tab) => setActiveTab(tab)}
+            />
+
+            {/* Side Bar Drawer for Profile */}
+            <ProfileDrawer
+                visible={isProfileDrawerOpen}
+                onClose={() => setIsProfileDrawerOpen(false)}
+                user={user}
+                userProfile={userProfile}
+                onLogout={logout}
+            />
+
+            {/* Full Screen Music Player Modal */}
+            <FullScreenPlayerModal
+                visible={isPlayerModalOpen}
+                track={currentTrack}
+                isPlaying={isPlaying}
+                onTogglePlay={togglePlay}
+                onClose={() => setIsPlayerModalOpen(false)}
+                onNext={handleNextTrack}
+                onPrevious={handlePreviousTrack}
+                queue={upcomingQueue}
+            />
         </SafeAreaView>
     );
 };
@@ -234,33 +368,86 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: COLORS.background,
     },
+    mainContainer: {
+        flex: 1,
+    },
+    tabContentContainer: {
+        flex: 1,
+    },
     header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'flex-start',
+        alignItems: 'center',
         paddingHorizontal: SPACE.lg,
-        paddingTop: SPACE.md,
+        paddingTop: SPACE.sm,
         paddingBottom: SPACE.sm,
+        borderBottomWidth: 1,
+        borderBottomColor: '#1F1F1F',
+    },
+    headerLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+    },
+    avatarButton: {
+        position: 'relative',
+        marginRight: SPACE.md,
+    },
+    avatar: {
+        width: 46,
+        height: 46,
+        borderRadius: 23,
+        borderWidth: 1.5,
+        borderColor: COLORS.primary,
+    },
+    avatarPlaceholder: {
+        width: 46,
+        height: 46,
+        borderRadius: 23,
+        backgroundColor: '#282828',
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderWidth: 1.5,
+        borderColor: COLORS.primary,
+    },
+    avatarInitial: {
+        color: COLORS.primary,
+        fontSize: 18,
+        fontWeight: 'bold',
+    },
+    avatarOnlineDot: {
+        position: 'absolute',
+        bottom: 0,
+        right: 0,
+        width: 12,
+        height: 12,
+        borderRadius: 6,
+        backgroundColor: COLORS.primary,
+        borderWidth: 2,
+        borderColor: COLORS.background,
+    },
+    userInfoBox: {
+        flex: 1,
     },
     greeting: {
         color: COLORS.textSecondary,
-        fontSize: 14,
+        fontSize: 12,
     },
     userName: {
         color: COLORS.textPrimary,
-        fontSize: 22,
+        fontSize: 17,
         fontWeight: 'bold',
     },
     badgeContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginTop: 4,
+        marginTop: 2,
     },
     statusDot: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        marginRight: 6,
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        marginRight: 5,
     },
     statusDotActive: {
         backgroundColor: COLORS.primary,
@@ -270,7 +457,7 @@ const styles = StyleSheet.create({
     },
     badgeText: {
         color: COLORS.textSecondary,
-        fontSize: 12,
+        fontSize: 11,
     },
     signOutButton: {
         backgroundColor: COLORS.surfaceElevated,
@@ -279,6 +466,7 @@ const styles = StyleSheet.create({
         borderRadius: RADIUS.circle,
         borderWidth: 1,
         borderColor: COLORS.border,
+        marginLeft: SPACE.sm,
     },
     signOutText: {
         color: COLORS.textPrimary,
@@ -318,7 +506,7 @@ const styles = StyleSheet.create({
     },
     listContent: {
         paddingHorizontal: SPACE.lg,
-        paddingBottom: 90,
+        paddingBottom: 20,
     },
     trackRow: {
         flexDirection: 'row',
@@ -393,17 +581,15 @@ const styles = StyleSheet.create({
         marginTop: 4,
     },
     playerBar: {
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        backgroundColor: COLORS.surfaceElevated,
+        backgroundColor: '#202020',
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: SPACE.md,
-        paddingVertical: SPACE.sm,
+        paddingVertical: SPACE.xs + 2,
         borderTopWidth: 1,
-        borderTopColor: COLORS.border,
+        borderTopColor: '#2C2C2C',
+        borderBottomWidth: 1,
+        borderBottomColor: '#171717',
     },
     playerArtwork: {
         width: 44,
@@ -423,18 +609,27 @@ const styles = StyleSheet.create({
         color: COLORS.textSecondary,
         fontSize: 12,
     },
+    miniLikeButton: {
+        padding: 8,
+        marginRight: 4,
+    },
+    miniLikeIcon: {
+        color: COLORS.textSecondary,
+        fontSize: 20,
+    },
     playButton: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: COLORS.primary,
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        backgroundColor: COLORS.white,
         justifyContent: 'center',
         alignItems: 'center',
-        marginLeft: SPACE.md,
+        marginLeft: SPACE.xs,
     },
     playButtonText: {
         color: COLORS.black,
-        fontSize: 16,
+        fontSize: 15,
+        marginLeft: 1,
     },
 });
 

@@ -12,7 +12,20 @@
           "package_name": "spotibisaya.powertrio"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "1059014495317-fpg99n4pn0h7261ut2ad374achij1m4d.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "spotibisaya.powertrio",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "1059014495317-3c5mamk6f5i6rt7dbj1ffadi61oo18nh.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBuaoqYjIiHxzrpV4T8bMxjRaV1fT2bu8U"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1059014495317-3c5mamk6f5i6rt7dbj1ffadi61oo18nh.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

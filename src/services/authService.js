@@ -12,16 +12,22 @@ import { auth, db, isFirebaseConfigured } from './firebaseConfig';
 import { GOOGLE_CONFIG } from '../constants/config';
 
 // Configure Google Sign-In with webClientId if provided
-if (GOOGLE_CONFIG.webClientId) {
-    try {
-        GoogleSignin.configure({
-            webClientId: GOOGLE_CONFIG.webClientId,
-            offlineAccess: true,
-        });
-    } catch (err) {
-        console.warn('GoogleSignin configure warning:', err);
+export const configureGoogleSignIn = () => {
+    if (GOOGLE_CONFIG.webClientId) {
+        try {
+            GoogleSignin.configure({
+                webClientId: GOOGLE_CONFIG.webClientId,
+                offlineAccess: true,
+                scopes: ['profile', 'email'],
+            });
+        } catch (err) {
+            console.warn('GoogleSignin configure warning:', err);
+        }
     }
-}
+};
+
+// Initial setup
+configureGoogleSignIn();
 
 /**
  * Format Firebase Auth errors into clear, user-friendly messages
@@ -129,6 +135,7 @@ export const loginWithGoogle = async () => {
     }
 
     try {
+        configureGoogleSignIn();
         await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
         const signInResult = await GoogleSignin.signIn();
         const idToken = signInResult.data?.idToken || signInResult.idToken;

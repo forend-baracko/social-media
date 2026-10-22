@@ -36,6 +36,7 @@ export const AUDIOMACK_CONFIG = {
 /**
  * Google Sign-In Configuration
  */
+const rawGoogleClientId = GOOGLE_WEB_CLIENT_ID || '1059014495317-3c5mamk6f5i6rt7dbj1ffadi61oo18nh.apps.googleusercontent.com';
 export const GOOGLE_CONFIG = {
-    webClientId: GOOGLE_WEB_CLIENT_ID || '',
+    webClientId: rawGoogleClientId ? rawGoogleClientId.replace(/^["']|["']$/g, '').trim() : '',
 };

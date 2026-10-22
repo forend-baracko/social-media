@@ -79,7 +79,7 @@ android {
 
     namespace "com.tempprojectname"
     defaultConfig {
-        applicationId "com.tempprojectname"
+        applicationId "spotibisaya.powertrio"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
@@ -117,3 +117,5 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+apply plugin: "com.google.gms.google-services"
