@@ -11,25 +11,29 @@ import {
     ActivityIndicator,
     StatusBar,
     Alert,
+    Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, SPACE, RADIUS } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
-import { getTrendingMusic, searchMusic } from '../services/audiomackService';
+import { getTrendingMusic, searchMusic, MOCK_TRACKS } from '../services/audiomackService';
+import audioPlayer from '../services/audioPlayer';
 import BottomNavBar, { TABS } from '../components/BottomNavBar';
 import ProfileDrawer from '../components/ProfileDrawer';
 import FullScreenPlayerModal from '../components/FullScreenPlayerModal';
 import { LibraryView, CreateView } from '../components/LibraryAndCreateViews';
 
 const HomeScreen = () => {
+    const insets = useSafeAreaInsets();
     const { user, userProfile, logout, isConfigured } = useAuth();
     const [activeTab, setActiveTab] = useState(TABS.HOME);
 
     // Track states
     const [searchQuery, setSearchQuery] = useState('');
-    const [tracks, setTracks] = useState([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [currentTrack, setCurrentTrack] = useState(null);
-    const [isPlaying, setIsPlaying] = useState(false);
+    const [tracks, setTracks] = useState(MOCK_TRACKS);
+    const [isLoading, setIsLoading] = useState(false);
+    const [currentTrack, setCurrentTrack] = useState(() => audioPlayer.getCurrentTrack() || MOCK_TRACKS[0]);
+    const [isPlaying, setIsPlaying] = useState(() => audioPlayer.getIsPlaying());
 
     // Modals state
     const [isProfileDrawerOpen, setIsProfileDrawerOpen] = useState(false);
@@ -39,16 +43,18 @@ const HomeScreen = () => {
         setIsLoading(true);
         try {
             const result = await getTrendingMusic();
-            setTracks(result);
-            if (result.length > 0 && !currentTrack) {
-                setCurrentTrack(result[0]);
+            if (result && result.length > 0) {
+                setTracks(result);
+            } else {
+                setTracks(MOCK_TRACKS);
             }
         } catch (err) {
-            console.warn('Failed to load tracks:', err);
+            console.warn('Failed to load tracks, using fallback music:', err);
+            setTracks(MOCK_TRACKS);
         } finally {
             setIsLoading(false);
         }
-    }, [currentTrack]);
+    }, []);
 
     // Fetch initial trending tracks on mount
     useEffect(() => {
@@ -84,6 +90,7 @@ const HomeScreen = () => {
                     style: 'destructive',
                     onPress: async () => {
                         try {
+                            audioPlayer.stop();
                             await logout();
                         } catch (e) {
                             Alert.alert('Error', e.message);
@@ -94,29 +101,55 @@ const HomeScreen = () => {
         );
     };
 
+    // Sync audio player state across tab switches and background playback
+    useEffect(() => {
+        const unsubscribe = audioPlayer.addListener((event, data) => {
+            if (event === 'status') {
+                if (typeof data?.isPlaying === 'boolean') {
+                    setIsPlaying(data.isPlaying);
+                }
+                if (data?.track) {
+                    setCurrentTrack(data.track);
+                }
+            }
+        });
+        return () => {
+            unsubscribe();
+        };
+    }, []);
+
     const togglePlay = () => {
-        setIsPlaying(!isPlaying);
+        if (!currentTrack) return;
+        audioPlayer.togglePlay(currentTrack);
     };
 
     const handleSelectTrack = (track) => {
         setCurrentTrack(track);
-        setIsPlaying(true);
+        audioPlayer.playTrack(track, () => {
+            handleNextTrack();
+        });
     };
 
     const handleNextTrack = () => {
         if (!tracks || tracks.length === 0 || !currentTrack) return;
         const currentIndex = tracks.findIndex((t) => t.id === currentTrack.id);
         const nextIndex = (currentIndex + 1) % tracks.length;
-        setCurrentTrack(tracks[nextIndex]);
-        setIsPlaying(true);
+        const nextTrack = tracks[nextIndex];
+        setCurrentTrack(nextTrack);
+        audioPlayer.playTrack(nextTrack, () => {
+            handleNextTrack();
+        });
     };
 
     const handlePreviousTrack = () => {
         if (!tracks || tracks.length === 0 || !currentTrack) return;
         const currentIndex = tracks.findIndex((t) => t.id === currentTrack.id);
         const prevIndex = (currentIndex - 1 + tracks.length) % tracks.length;
-        setCurrentTrack(tracks[prevIndex]);
-        setIsPlaying(true);
+        const prevTrack = tracks[prevIndex];
+        setCurrentTrack(prevTrack);
+        audioPlayer.playTrack(prevTrack, () => {
+            handleNextTrack();
+        });
     };
 
     const upcomingQueue = useMemo(() => {
@@ -200,8 +233,8 @@ const HomeScreen = () => {
                         {searchQuery.trim()
                             ? 'Search Results'
                             : activeTab === TABS.SEARCH
-                            ? 'Top Charts & Genres'
-                            : 'Trending on Audiomack'}
+                                ? 'Top Charts & Genres'
+                                : 'Trending Music'}
                     </Text>
                     <Text style={styles.trackCount}>{tracks.length} tracks</Text>
                 </View>
@@ -210,14 +243,19 @@ const HomeScreen = () => {
                 {isLoading ? (
                     <View style={styles.loaderContainer}>
                         <ActivityIndicator size="large" color={COLORS.primary} />
-                        <Text style={styles.loadingText}>Loading Audiomack music...</Text>
+                        <Text style={styles.loadingText}>Loading music...</Text>
                     </View>
                 ) : (
                     <FlatList
                         data={tracks}
                         keyExtractor={(item) => item.id}
                         renderItem={renderTrackItem}
-                        contentContainerStyle={styles.listContent}
+                        style={styles.flatList}
+                        contentContainerStyle={[
+                            styles.listContent,
+                            { paddingBottom: currentTrack ? 90 : 30 },
+                        ]}
+                        showsVerticalScrollIndicator={false}
                         ListEmptyComponent={
                             <View style={styles.emptyContainer}>
                                 <Text style={styles.emptyTitle}>No tracks found</Text>
@@ -235,7 +273,17 @@ const HomeScreen = () => {
             <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
 
             {/* Header with Clickable Profile Picture */}
-            <View style={styles.header}>
+            <View
+                style={[
+                    styles.header,
+                    {
+                        paddingTop: Math.max(
+                            insets.top,
+                            Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 10
+                        ) + SPACE.xs,
+                    },
+                ]}
+            >
                 <View style={styles.headerLeft}>
                     {/* Profile Picture (Click opens Side Bar Drawer) */}
                     <TouchableOpacity
@@ -260,17 +308,6 @@ const HomeScreen = () => {
                         <Text style={styles.userName} numberOfLines={1}>
                             {displayName}
                         </Text>
-                        <View style={styles.badgeContainer}>
-                            <View
-                                style={[
-                                    styles.statusDot,
-                                    isConfigured ? styles.statusDotActive : styles.statusDotPending,
-                                ]}
-                            />
-                            <Text style={styles.badgeText}>
-                                {isConfigured ? 'Firebase Sync' : 'Ready'}
-                            </Text>
-                        </View>
                     </View>
                 </View>
 
@@ -379,7 +416,7 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         alignItems: 'center',
         paddingHorizontal: SPACE.lg,
-        paddingTop: SPACE.sm,
+        paddingTop: SPACE.xs,
         paddingBottom: SPACE.sm,
         borderBottomWidth: 1,
         borderBottomColor: '#1F1F1F',
@@ -388,10 +425,13 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         flex: 1,
+        flexShrink: 1,
+        marginRight: SPACE.xs,
     },
     avatarButton: {
         position: 'relative',
         marginRight: SPACE.md,
+        flexShrink: 0,
     },
     avatar: {
         width: 46,
@@ -428,6 +468,7 @@ const styles = StyleSheet.create({
     },
     userInfoBox: {
         flex: 1,
+        flexShrink: 1,
     },
     greeting: {
         color: COLORS.textSecondary,
@@ -467,6 +508,7 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: COLORS.border,
         marginLeft: SPACE.sm,
+        flexShrink: 0,
     },
     signOutText: {
         color: COLORS.textPrimary,
@@ -504,9 +546,12 @@ const styles = StyleSheet.create({
         color: COLORS.textSecondary,
         fontSize: 12,
     },
+    flatList: {
+        flex: 1,
+    },
     listContent: {
         paddingHorizontal: SPACE.lg,
-        paddingBottom: 20,
+        paddingTop: SPACE.xs,
     },
     trackRow: {
         flexDirection: 'row',
@@ -527,6 +572,7 @@ const styles = StyleSheet.create({
     },
     trackInfo: {
         flex: 1,
+        flexShrink: 1,
         marginLeft: SPACE.md,
         justifyContent: 'center',
     },
@@ -545,7 +591,9 @@ const styles = StyleSheet.create({
     },
     trackMeta: {
         alignItems: 'flex-end',
+        justifyContent: 'center',
         marginLeft: SPACE.sm,
+        flexShrink: 0,
     },
     duration: {
         color: COLORS.textSecondary,
@@ -595,9 +643,11 @@ const styles = StyleSheet.create({
         width: 44,
         height: 44,
         borderRadius: RADIUS.xs,
+        flexShrink: 0,
     },
     playerDetails: {
         flex: 1,
+        flexShrink: 1,
         marginLeft: SPACE.md,
     },
     playerTitle: {

@@ -15,6 +15,7 @@ import {
     Platform,
 } from 'react-native';
 import { COLORS, SPACE, RADIUS } from '../constants/theme';
+import audioPlayer from '../services/audioPlayer';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -29,7 +30,7 @@ const FullScreenPlayerModal = ({
     queue = [],
 }) => {
     // Player playback state
-    const [progressSeconds, setProgressSeconds] = useState(45);
+    const [progressSeconds, setProgressSeconds] = useState(0);
     const [durationSeconds, setDurationSeconds] = useState(230);
     const [isLiked, setIsLiked] = useState(false);
     const [isShuffle, setIsShuffle] = useState(false);
@@ -54,27 +55,22 @@ const FullScreenPlayerModal = ({
                 }
             }
         }
-        // Reset or randomize slight progress for realism
-        setProgressSeconds(28);
     }, [track]);
 
-    // Simulated progress timer when playing
+    // Sync real audio progress
     useEffect(() => {
-        if (!isPlaying || !visible) return;
-
-        const interval = setInterval(() => {
-            setProgressSeconds((prev) => {
-                if (prev >= durationSeconds) {
-                    if (repeatMode === 'one') return 0;
-                    if (onNext) onNext();
-                    return 0;
+        const unsubscribe = audioPlayer.addListener((event, data) => {
+            if (event === 'progress') {
+                if (typeof data.currentTime === 'number') {
+                    setProgressSeconds(data.currentTime);
                 }
-                return prev + 1;
-            });
-        }, 1000);
-
-        return () => clearInterval(interval);
-    }, [isPlaying, visible, durationSeconds, repeatMode, onNext]);
+                if (data.duration && data.duration > 0) {
+                    setDurationSeconds(data.duration);
+                }
+            }
+        });
+        return () => unsubscribe();
+    }, []);
 
     if (!track) return null;
 
@@ -213,7 +209,18 @@ const FullScreenPlayerModal = ({
 
                         {/* Timeline / Progress Slider bar */}
                         <View style={styles.progressContainer}>
-                            <View style={styles.trackBarBackground}>
+                            <TouchableOpacity
+                                style={styles.trackBarBackground}
+                                activeOpacity={0.9}
+                                onPress={(e) => {
+                                    const clickX = e.nativeEvent.locationX;
+                                    const totalWidth = SCREEN_WIDTH - SPACE.lg * 2;
+                                    const ratio = Math.max(0, Math.min(1, clickX / totalWidth));
+                                    const seekSecs = Math.floor(ratio * durationSeconds);
+                                    setProgressSeconds(seekSecs);
+                                    audioPlayer.seekTo(seekSecs);
+                                }}
+                            >
                                 <View
                                     style={[
                                         styles.trackBarFill,
@@ -226,7 +233,7 @@ const FullScreenPlayerModal = ({
                                         { left: `${Math.max(progressPercent - 1, 0)}%` },
                                     ]}
                                 />
-                            </View>
+                            </TouchableOpacity>
 
                             <View style={styles.timeRow}>
                                 <Text style={styles.timeText}>{formatTime(progressSeconds)}</Text>

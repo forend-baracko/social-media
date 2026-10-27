@@ -1,16 +1,17 @@
 import { AUDIOMACK_CONFIG } from '../constants/config';
 
-// Curated high-fidelity mock data for fallback & development
-const MOCK_TRACKS = [
+// Curated high-fidelity mock data with working preview audio for fallback & development
+export const MOCK_TRACKS = [
     {
         id: 'track-1',
-        title: 'Starboy',
-        artist: 'The Weeknd ft. Daft Punk',
-        album: 'Starboy',
-        duration: '3:50',
+        title: 'Fallin',
+        artist: 'December Avenue ft. Clara Benin',
+        album: 'Fallin',
+        duration: '4:17',
         artwork: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&q=80',
-        plays: '1.2B',
-        genre: 'Pop / R&B'
+        audioUrl: '../../assets/music/December Avenue - Fallin.mp3',
+        plays: '400M',
+        genre: 'OPM'
     },
     {
         id: 'track-2',
@@ -19,6 +20,7 @@ const MOCK_TRACKS = [
         album: 'After Hours',
         duration: '3:20',
         artwork: 'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=400&q=80',
+        audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
         plays: '2.4B',
         genre: 'Synthwave'
     },
@@ -29,6 +31,7 @@ const MOCK_TRACKS = [
         album: 'Scorpion',
         duration: '3:18',
         artwork: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&q=80',
+        audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3',
         plays: '1.8B',
         genre: 'Hip-Hop'
     },
@@ -39,6 +42,7 @@ const MOCK_TRACKS = [
         album: 'Harry\'s House',
         duration: '2:47',
         artwork: 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?w=400&q=80',
+        audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',
         plays: '1.5B',
         genre: 'Indie Pop'
     },
@@ -49,6 +53,7 @@ const MOCK_TRACKS = [
         album: 'Future Nostalgia',
         duration: '3:23',
         artwork: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400&q=80',
+        audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3',
         plays: '980M',
         genre: 'Dance-Pop'
     },
@@ -59,8 +64,53 @@ const MOCK_TRACKS = [
         album: 'Love, Damini',
         duration: '2:52',
         artwork: 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=400&q=80',
+        audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3',
         plays: '450M',
         genre: 'Afrobeats'
+    },
+    {
+        id: 'track-7',
+        title: 'Shape of You',
+        artist: 'Ed Sheeran',
+        album: '÷ (Divide)',
+        duration: '3:53',
+        artwork: 'https://images.unsplash.com/photo-1511735111819-9a3f7709049c?w=400&q=80',
+        audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-7.mp3',
+        plays: '3.6B',
+        genre: 'Pop'
+    },
+    {
+        id: 'track-8',
+        title: 'Bad Guy',
+        artist: 'Billie Eilish',
+        album: 'WHEN WE ALL FALL ASLEEP, WHERE DO WE GO?',
+        duration: '3:14',
+        artwork: 'https://images.unsplash.com/photo-1518609878373-06d740f60d8b?w=400&q=80',
+        audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3',
+        plays: '2.1B',
+        genre: 'Electropop'
+    },
+    {
+        id: 'track-9',
+        title: 'Save Your Tears',
+        artist: 'The Weeknd & Ariana Grande',
+        album: 'After Hours (Remix)',
+        duration: '3:11',
+        artwork: 'https://images.unsplash.com/photo-1516450360452-9312f5e86fc7?w=400&q=80',
+        audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-9.mp3',
+        plays: '1.4B',
+        genre: 'Synthpop'
+    },
+    {
+        id: 'track-10',
+        title: 'Flowers',
+        artist: 'Miley Cyrus',
+        album: 'Endless Summer Vacation',
+        duration: '3:20',
+        artwork: 'https://images.unsplash.com/photo-1487180144351-b8472da7d491?w=400&q=80',
+        audioUrl: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-10.mp3',
+        plays: '1.9B',
+        genre: 'Pop'
     }
 ];
 
