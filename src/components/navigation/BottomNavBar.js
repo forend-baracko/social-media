@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { COLORS, SPACE } from '../constants/theme';
+import { COLORS, SPACE } from '../../constants/theme';
 
 export const TABS = {
     HOME: 'Home',

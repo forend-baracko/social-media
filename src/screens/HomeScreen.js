@@ -16,16 +16,42 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, SPACE, RADIUS } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
+import { useMusic } from '../context/MusicContext';
 import { getTrendingMusic, searchMusic, MOCK_TRACKS } from '../services/audiomackService';
 import audioPlayer from '../services/audioPlayer';
-import BottomNavBar, { TABS } from '../components/BottomNavBar';
-import ProfileDrawer from '../components/ProfileDrawer';
-import FullScreenPlayerModal from '../components/FullScreenPlayerModal';
-import { LibraryView, CreateView } from '../components/LibraryAndCreateViews';
+
+// Organized subfolder components
+import BottomNavBar, { TABS } from '../components/navigation/BottomNavBar';
+import ProfileDrawer from '../components/profile/ProfileDrawer';
+import UserStatsModal from '../components/profile/UserStatsModal';
+import FullScreenPlayerModal from '../components/player/FullScreenPlayerModal';
+import SwipeableTrackRow from '../components/player/SwipeableTrackRow';
+import TrackActionSheetModal from '../components/player/TrackActionSheetModal';
+import { LibraryView, CreateView } from '../components/playlists/LibraryAndCreateViews';
+import AddToPlaylistModal from '../components/playlists/AddToPlaylistModal';
+import PlaylistDetailModal from '../components/playlists/PlaylistDetailModal';
+import MessagesModal from '../components/social/MessagesModal';
+import RecentPlayedModal from '../components/social/RecentPlayedModal';
+import SettingsModal from '../components/settings/SettingsModal';
 
 const HomeScreen = () => {
     const insets = useSafeAreaInsets();
-    const { user, userProfile, logout, isConfigured } = useAuth();
+    const { user, userProfile, logout } = useAuth();
+    const {
+        playlists,
+        createPlaylist,
+        deletePlaylist,
+        addTrackToPlaylist,
+        removeTrackFromPlaylist,
+        toggleLikeTrack,
+        isLiked,
+        userQueue,
+        addToQueue,
+        removeFromQueue,
+        recentTracks,
+        toast,
+    } = useMusic();
+
     const [activeTab, setActiveTab] = useState(TABS.HOME);
 
     // Track states
@@ -38,6 +64,16 @@ const HomeScreen = () => {
     // Modals state
     const [isProfileDrawerOpen, setIsProfileDrawerOpen] = useState(false);
     const [isPlayerModalOpen, setIsPlayerModalOpen] = useState(false);
+    const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
+    const [isRecentsModalOpen, setIsRecentsModalOpen] = useState(false);
+    const [isMessagesModalOpen, setIsMessagesModalOpen] = useState(false);
+    const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+
+    // Contextual modals
+    const [selectedPlaylist, setSelectedPlaylist] = useState(null);
+    const [actionSheetTrack, setActionSheetTrack] = useState(null);
+    const [actionSheetPlaylistId, setActionSheetPlaylistId] = useState(null);
+    const [addToPlaylistTrack, setAddToPlaylistTrack] = useState(null);
 
     const loadTrending = useCallback(async () => {
         setIsLoading(true);
@@ -101,7 +137,7 @@ const HomeScreen = () => {
         );
     };
 
-    // Sync audio player state across tab switches and background playback
+    // Sync audio player state
     useEffect(() => {
         const unsubscribe = audioPlayer.addListener((event, data) => {
             if (event === 'status') {
@@ -131,6 +167,17 @@ const HomeScreen = () => {
     };
 
     const handleNextTrack = () => {
+        // If items exist in userQueue, play first queued song!
+        if (userQueue.length > 0) {
+            const nextFromQueue = userQueue[0];
+            removeFromQueue(0);
+            setCurrentTrack(nextFromQueue);
+            audioPlayer.playTrack(nextFromQueue, () => {
+                handleNextTrack();
+            });
+            return;
+        }
+
         if (!tracks || tracks.length === 0 || !currentTrack) return;
         const currentIndex = tracks.findIndex((t) => t.id === currentTrack.id);
         const nextIndex = (currentIndex + 1) % tracks.length;
@@ -152,12 +199,19 @@ const HomeScreen = () => {
         });
     };
 
+    // Upcoming queue calculation: User queue first, then next songs
     const upcomingQueue = useMemo(() => {
-        if (!tracks || tracks.length === 0 || !currentTrack) return [];
-        const currentIndex = tracks.findIndex((t) => t.id === currentTrack.id);
-        if (currentIndex === -1) return tracks.slice(0, 5);
-        return [...tracks.slice(currentIndex + 1), ...tracks.slice(0, currentIndex)];
-    }, [tracks, currentTrack]);
+        let baseList = [];
+        if (tracks && tracks.length > 0 && currentTrack) {
+            const currentIndex = tracks.findIndex((t) => t.id === currentTrack.id);
+            if (currentIndex !== -1) {
+                baseList = [...tracks.slice(currentIndex + 1), ...tracks.slice(0, currentIndex)];
+            } else {
+                baseList = tracks.slice(0, 5);
+            }
+        }
+        return [...userQueue, ...baseList];
+    }, [tracks, currentTrack, userQueue]);
 
     const displayName =
         userProfile?.displayName ||
@@ -166,44 +220,44 @@ const HomeScreen = () => {
 
     const photoURL = userProfile?.photoURL || user?.photoURL || null;
 
+    // Render Track Item using SwipeableTrackRow with 3-dot menu and swipe gestures!
     const renderTrackItem = ({ item }) => {
         const isSelected = currentTrack?.id === item.id;
+        const isCurrentLiked = isLiked(item.id);
 
         return (
-            <TouchableOpacity
-                style={[styles.trackRow, isSelected && styles.trackRowActive]}
+            <SwipeableTrackRow
+                track={item}
+                isSelected={isSelected}
                 onPress={() => handleSelectTrack(item)}
-                activeOpacity={0.7}
-            >
-                <Image source={{ uri: item.artwork }} style={styles.artwork} />
-                <View style={styles.trackInfo}>
-                    <Text
-                        style={[styles.trackTitle, isSelected && styles.trackTitleActive]}
-                        numberOfLines={1}
-                    >
-                        {item.title}
-                    </Text>
-                    <Text style={styles.trackArtist} numberOfLines={1}>
-                        {item.artist}
-                    </Text>
-                </View>
-                <View style={styles.trackMeta}>
-                    <Text style={styles.duration}>{item.duration}</Text>
-                    {item.plays ? (
-                        <Text style={styles.plays}>{item.plays} plays</Text>
-                    ) : null}
-                </View>
-            </TouchableOpacity>
+                onOpenMenu={(track) => {
+                    setActionSheetTrack(track);
+                    setActionSheetPlaylistId(null);
+                }}
+                onAddToQueue={(track) => addToQueue(track)}
+                onAddToPlaylist={(track) => setAddToPlaylistTrack(track)}
+                onToggleFavorite={(track) => toggleLikeTrack(track)}
+                isLiked={isCurrentLiked}
+            />
         );
     };
 
     const renderMainContent = () => {
         if (activeTab === TABS.LIBRARY) {
-            return <LibraryView />;
+            return (
+                <LibraryView
+                    onOpenPlaylist={(playlist) => setSelectedPlaylist(playlist)}
+                />
+            );
         }
 
         if (activeTab === TABS.CREATE) {
-            return <CreateView />;
+            return (
+                <CreateView
+                    onOpenPlaylist={(playlist) => setSelectedPlaylist(playlist)}
+                    onSwitchToLibrary={() => setActiveTab(TABS.LIBRARY)}
+                />
+            );
         }
 
         // Both Home & Search tabs display music feeds with search capability
@@ -216,7 +270,7 @@ const HomeScreen = () => {
                         placeholder={
                             activeTab === TABS.SEARCH
                                 ? "What do you want to listen to?"
-                                : "Search Audiomack songs, artists..."
+                                : "Search songs, artists, or genres..."
                         }
                         placeholderTextColor={COLORS.textMuted}
                         value={searchQuery}
@@ -311,6 +365,18 @@ const HomeScreen = () => {
                     </View>
                 </View>
 
+                {/* Quick Messages / Friends Button in header */}
+                <TouchableOpacity
+                    style={styles.headerIconBtn}
+                    onPress={() => setIsMessagesModalOpen(true)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                    <Text style={styles.headerEmojiIcon}>💬</Text>
+                    <View style={styles.headerBadge}>
+                        <Text style={styles.headerBadgeText}>2</Text>
+                    </View>
+                </TouchableOpacity>
+
                 <TouchableOpacity
                     style={styles.signOutButton}
                     onPress={handleLogout}
@@ -324,6 +390,14 @@ const HomeScreen = () => {
             <View style={styles.mainContainer}>
                 {renderMainContent()}
             </View>
+
+            {/* Floating Toast Notification Banner */}
+            {toast && (
+                <View style={styles.toastContainer}>
+                    <Text style={styles.toastIcon}>{toast.icon || '✓'}</Text>
+                    <Text style={styles.toastMessage} numberOfLines={1}>{toast.message}</Text>
+                </View>
+            )}
 
             {/* Mini Player Bar (Clicking anywhere opens Full Screen Player) */}
             {currentTrack && (
@@ -348,10 +422,15 @@ const HomeScreen = () => {
                         activeOpacity={0.7}
                         onPress={(e) => {
                             e.stopPropagation();
-                            Alert.alert('Liked Songs', `Saved "${currentTrack.title}" to Liked Songs.`);
+                            toggleLikeTrack(currentTrack);
                         }}
                     >
-                        <Text style={styles.miniLikeIcon}>♡</Text>
+                        <Text style={[
+                            styles.miniLikeIcon,
+                            isLiked(currentTrack.id) && styles.miniLikeIconActive,
+                        ]}>
+                            {isLiked(currentTrack.id) ? '💚' : '♡'}
+                        </Text>
                     </TouchableOpacity>
 
                     {/* Play/Pause Button on mini player */}
@@ -383,6 +462,10 @@ const HomeScreen = () => {
                 user={user}
                 userProfile={userProfile}
                 onLogout={logout}
+                onOpenStats={() => setIsStatsModalOpen(true)}
+                onOpenRecents={() => setIsRecentsModalOpen(true)}
+                onOpenMessages={() => setIsMessagesModalOpen(true)}
+                onOpenSettings={() => setIsSettingsModalOpen(true)}
             />
 
             {/* Full Screen Music Player Modal */}
@@ -395,6 +478,105 @@ const HomeScreen = () => {
                 onNext={handleNextTrack}
                 onPrevious={handlePreviousTrack}
                 queue={upcomingQueue}
+            />
+
+            {/* User Stats Modal */}
+            <UserStatsModal
+                visible={isStatsModalOpen}
+                onClose={() => setIsStatsModalOpen(false)}
+                user={user}
+                userProfile={userProfile}
+            />
+
+            {/* Recent Played Songs & Albums Modal */}
+            <RecentPlayedModal
+                visible={isRecentsModalOpen}
+                onClose={() => setIsRecentsModalOpen(false)}
+                recentTracks={recentTracks}
+                onPlayTrack={handleSelectTrack}
+                currentTrack={currentTrack}
+                onOpenTrackMenu={(track) => {
+                    setActionSheetTrack(track);
+                    setActionSheetPlaylistId(null);
+                }}
+                onAddToQueue={addToQueue}
+                onAddToPlaylist={(track) => setAddToPlaylistTrack(track)}
+                onToggleFavorite={toggleLikeTrack}
+                isLiked={isLiked}
+            />
+
+            {/* Messages & Friend Activity Modal */}
+            <MessagesModal
+                visible={isMessagesModalOpen}
+                onClose={() => setIsMessagesModalOpen(false)}
+                onPlayTrack={handleSelectTrack}
+            />
+
+            {/* Settings Modal */}
+            <SettingsModal
+                visible={isSettingsModalOpen}
+                onClose={() => setIsSettingsModalOpen(false)}
+                user={user}
+                userProfile={userProfile}
+                onLogout={logout}
+            />
+
+            {/* Playlist Detail Modal */}
+            {selectedPlaylist && (
+                <PlaylistDetailModal
+                    visible={!!selectedPlaylist}
+                    playlist={
+                        playlists.find((p) => p.id === selectedPlaylist.id) || selectedPlaylist
+                    }
+                    onClose={() => setSelectedPlaylist(null)}
+                    onPlayTrack={handleSelectTrack}
+                    currentTrack={currentTrack}
+                    onOpenTrackMenu={(track, playlistId) => {
+                        setActionSheetTrack(track);
+                        setActionSheetPlaylistId(playlistId);
+                    }}
+                    onAddToQueue={addToQueue}
+                    onAddToPlaylist={(track) => setAddToPlaylistTrack(track)}
+                    onToggleFavorite={toggleLikeTrack}
+                    isLiked={isLiked}
+                    onDeletePlaylist={deletePlaylist}
+                />
+            )}
+
+            {/* Three-Dot Track Action Sheet Modal */}
+            <TrackActionSheetModal
+                visible={!!actionSheetTrack}
+                track={actionSheetTrack}
+                onClose={() => {
+                    setActionSheetTrack(null);
+                    setActionSheetPlaylistId(null);
+                }}
+                onAddToPlaylist={(track) => {
+                    setActionSheetTrack(null);
+                    setAddToPlaylistTrack(track);
+                }}
+                onRemoveFromPlaylist={
+                    actionSheetPlaylistId
+                        ? (track) => removeTrackFromPlaylist(actionSheetPlaylistId, track.id)
+                        : null
+                }
+                onAddToQueue={(track) => addToQueue(track)}
+                onToggleLike={(track) => toggleLikeTrack(track)}
+                isLiked={actionSheetTrack ? isLiked(actionSheetTrack.id) : false}
+                isInPlaylist={!!actionSheetPlaylistId}
+            />
+
+            {/* Add To Playlist Picker Modal */}
+            <AddToPlaylistModal
+                visible={!!addToPlaylistTrack}
+                track={addToPlaylistTrack}
+                playlists={playlists}
+                onClose={() => setAddToPlaylistTrack(null)}
+                onSelectPlaylist={(playlistId, track) => {
+                    addTrackToPlaylist(playlistId, track);
+                    setAddToPlaylistTrack(null);
+                }}
+                onCreatePlaylist={createPlaylist}
             />
         </SafeAreaView>
     );
@@ -479,26 +661,30 @@ const styles = StyleSheet.create({
         fontSize: 17,
         fontWeight: 'bold',
     },
-    badgeContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: 2,
+    headerIconBtn: {
+        position: 'relative',
+        paddingHorizontal: 8,
+        paddingVertical: 6,
+        marginRight: 6,
     },
-    statusDot: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-        marginRight: 5,
+    headerEmojiIcon: {
+        fontSize: 20,
     },
-    statusDotActive: {
+    headerBadge: {
+        position: 'absolute',
+        top: 2,
+        right: 2,
         backgroundColor: COLORS.primary,
+        width: 16,
+        height: 16,
+        borderRadius: 8,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
-    statusDotPending: {
-        backgroundColor: '#E5A93C',
-    },
-    badgeText: {
-        color: COLORS.textSecondary,
-        fontSize: 11,
+    headerBadgeText: {
+        color: COLORS.black,
+        fontSize: 9,
+        fontWeight: 'bold',
     },
     signOutButton: {
         backgroundColor: COLORS.surfaceElevated,
@@ -507,7 +693,7 @@ const styles = StyleSheet.create({
         borderRadius: RADIUS.circle,
         borderWidth: 1,
         borderColor: COLORS.border,
-        marginLeft: SPACE.sm,
+        marginLeft: SPACE.xs,
         flexShrink: 0,
     },
     signOutText: {
@@ -550,59 +736,8 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     listContent: {
-        paddingHorizontal: SPACE.lg,
+        paddingHorizontal: SPACE.xs,
         paddingTop: SPACE.xs,
-    },
-    trackRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: SPACE.sm,
-        paddingHorizontal: SPACE.sm,
-        borderRadius: RADIUS.sm,
-        marginBottom: SPACE.xs,
-    },
-    trackRowActive: {
-        backgroundColor: COLORS.surfaceElevated,
-    },
-    artwork: {
-        width: 52,
-        height: 52,
-        borderRadius: RADIUS.xs,
-        backgroundColor: COLORS.surface,
-    },
-    trackInfo: {
-        flex: 1,
-        flexShrink: 1,
-        marginLeft: SPACE.md,
-        justifyContent: 'center',
-    },
-    trackTitle: {
-        color: COLORS.textPrimary,
-        fontSize: 15,
-        fontWeight: '600',
-        marginBottom: 2,
-    },
-    trackTitleActive: {
-        color: COLORS.primary,
-    },
-    trackArtist: {
-        color: COLORS.textSecondary,
-        fontSize: 13,
-    },
-    trackMeta: {
-        alignItems: 'flex-end',
-        justifyContent: 'center',
-        marginLeft: SPACE.sm,
-        flexShrink: 0,
-    },
-    duration: {
-        color: COLORS.textSecondary,
-        fontSize: 12,
-    },
-    plays: {
-        color: COLORS.textMuted,
-        fontSize: 10,
-        marginTop: 2,
     },
     loaderContainer: {
         flex: 1,
@@ -627,6 +762,36 @@ const styles = StyleSheet.create({
         color: COLORS.textSecondary,
         fontSize: 14,
         marginTop: 4,
+    },
+    // Floating toast pill
+    toastContainer: {
+        position: 'absolute',
+        bottom: 120,
+        alignSelf: 'center',
+        backgroundColor: '#1E382B',
+        borderColor: COLORS.primary,
+        borderWidth: 1,
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: RADIUS.circle,
+        flexDirection: 'row',
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.4,
+        shadowRadius: 8,
+        elevation: 8,
+        zIndex: 999,
+        maxWidth: '85%',
+    },
+    toastIcon: {
+        fontSize: 15,
+        marginRight: 8,
+    },
+    toastMessage: {
+        color: COLORS.white,
+        fontSize: 13,
+        fontWeight: '600',
     },
     playerBar: {
         backgroundColor: '#202020',
@@ -666,6 +831,9 @@ const styles = StyleSheet.create({
     miniLikeIcon: {
         color: COLORS.textSecondary,
         fontSize: 20,
+    },
+    miniLikeIconActive: {
+        color: COLORS.primary,
     },
     playButton: {
         width: 38,

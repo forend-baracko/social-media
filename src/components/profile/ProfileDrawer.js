@@ -12,7 +12,7 @@ import {
     Image,
     Alert,
 } from 'react-native';
-import { COLORS, SPACE, RADIUS } from '../constants/theme';
+import { COLORS, SPACE, RADIUS } from '../../constants/theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.78, 320);
@@ -23,6 +23,10 @@ const ProfileDrawer = ({
     user,
     userProfile,
     onLogout,
+    onOpenStats,
+    onOpenRecents,
+    onOpenMessages,
+    onOpenSettings,
 }) => {
     const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
     const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -75,14 +79,20 @@ const ProfileDrawer = ({
             icon: '📊',
             label: 'User Stats',
             description: 'Listening history & top genres',
-            onPress: () => handleAction('User Stats', 'You listened to 142 hours of music this month! Top artist: The Weeknd.'),
+            onPress: () => {
+                onClose();
+                if (onOpenStats) onOpenStats();
+            },
         },
         {
             id: 'recents',
             icon: '🕒',
             label: 'Recents',
             description: 'Recently played albums & tracks',
-            onPress: () => handleAction('Recents', 'Viewing your recent stream history and playlists.'),
+            onPress: () => {
+                onClose();
+                if (onOpenRecents) onOpenRecents();
+            },
         },
         {
             id: 'messages',
@@ -90,7 +100,10 @@ const ProfileDrawer = ({
             label: 'Messages',
             description: 'Friend activity & playlist shares',
             badge: '2',
-            onPress: () => handleAction('Messages', 'You have 2 new shared playlists from friends!'),
+            onPress: () => {
+                onClose();
+                if (onOpenMessages) onOpenMessages();
+            },
         },
         {
             id: 'account_status',
@@ -112,7 +125,10 @@ const ProfileDrawer = ({
             icon: '⚙️',
             label: 'Settings',
             description: 'Audio quality, downloads & privacy',
-            onPress: () => handleAction('Settings', 'Settings & Preferences: Audio streaming quality is set to Very High.'),
+            onPress: () => {
+                onClose();
+                if (onOpenSettings) onOpenSettings();
+            },
         },
     ];
 
