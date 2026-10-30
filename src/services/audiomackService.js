@@ -3,15 +3,25 @@ import { AUDIOMACK_CONFIG } from '../constants/config';
 // Curated high-fidelity mock data with working preview audio for fallback & development
 export const MOCK_TRACKS = [
     {
-        id: 'track-1',
+       id: 'track-1',
         title: 'Fallin',
         artist: 'December Avenue ft. Clara Benin',
         album: 'Fallin',
         duration: '4:17',
         artwork: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&q=80',
-        audioUrl: '../../assets/music/December Avenue - Fallin.mp3',
+        audioUrl: 'fallin.mp3',
         plays: '400M',
-        genre: 'OPM'
+        genre: 'OPM',
+        lyrics: [
+            { time: 0, text: '♪ (Intro Instrumental) ♪' },
+            { time: 15, text: 'I think I am fallin for you...' },
+            { time: 28, text: 'And I do not know what to do...' },
+            { time: 42, text: 'Every look in your eyes takes my breath away' },
+            { time: 60, text: 'Will you stay with me tonight?' },
+            { time: 85, text: '♪ (Guitar Solo) ♪' },
+            { time: 120, text: 'Holding on to every single word you said' },
+            { time: 150, text: 'Forever standard in my head...' },
+        ],
     },
     {
         id: 'track-2',

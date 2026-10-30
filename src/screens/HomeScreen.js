@@ -1,854 +1,616 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-    SafeAreaView,
-    View,
-    Text,
-    TextInput,
-    FlatList,
-    Image,
-    TouchableOpacity,
-    StyleSheet,
-    ActivityIndicator,
-    StatusBar,
-    Alert,
-    Platform,
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  Image,
+  ScrollView,
+  TextInput,
+  ActivityIndicator,
+  StatusBar,
+  Platform,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, SPACE, RADIUS } from '../constants/theme';
-import { useAuth } from '../context/AuthContext';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useMusic } from '../context/MusicContext';
-import { getTrendingMusic, searchMusic, MOCK_TRACKS } from '../services/audiomackService';
+import { getTrendingMusic, searchMusic } from '../services/audiomackService';
 import audioPlayer from '../services/audioPlayer';
-
-// Organized subfolder components
-import BottomNavBar, { TABS } from '../components/navigation/BottomNavBar';
-import ProfileDrawer from '../components/profile/ProfileDrawer';
-import UserStatsModal from '../components/profile/UserStatsModal';
+import MiniPlayer from '../components/player/MiniPlayer';
 import FullScreenPlayerModal from '../components/player/FullScreenPlayerModal';
-import SwipeableTrackRow from '../components/player/SwipeableTrackRow';
-import TrackActionSheetModal from '../components/player/TrackActionSheetModal';
-import { LibraryView, CreateView } from '../components/playlists/LibraryAndCreateViews';
-import AddToPlaylistModal from '../components/playlists/AddToPlaylistModal';
 import PlaylistDetailModal from '../components/playlists/PlaylistDetailModal';
-import MessagesModal from '../components/social/MessagesModal';
-import RecentPlayedModal from '../components/social/RecentPlayedModal';
-import SettingsModal from '../components/settings/SettingsModal';
 
-const HomeScreen = () => {
-    const insets = useSafeAreaInsets();
-    const { user, userProfile, logout } = useAuth();
-    const {
-        playlists,
-        createPlaylist,
-        deletePlaylist,
-        addTrackToPlaylist,
-        removeTrackFromPlaylist,
-        toggleLikeTrack,
-        isLiked,
-        userQueue,
-        addToQueue,
-        removeFromQueue,
-        recentTracks,
-        toast,
-    } = useMusic();
+export default function HomeScreen({ navigation, onSelectPlaylist }) {
+  // 1. All Context Hooks
+  const musicContext = useMusic() || {};
+  const {
+    playlists = [],
+    toggleLikeTrack,
+    isLiked,
+    addToQueue,
+    addToPlaylist,
+    deletePlaylist,
+  } = musicContext;
 
-    const [activeTab, setActiveTab] = useState(TABS.HOME);
+  // 2. All State Hooks (Grouped together unconditionally at the top)
+  const [tracks, setTracks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState('All');
+  const [activeTrack, setActiveTrack] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isPlayerModalVisible, setIsPlayerModalVisible] = useState(false);
+  const [selectedPlaylist, setSelectedPlaylist] = useState(null);
+  const [isPlaylistModalVisible, setIsPlaylistModalVisible] = useState(false);
 
-    // Track states
-    const [searchQuery, setSearchQuery] = useState('');
-    const [tracks, setTracks] = useState(MOCK_TRACKS);
-    const [isLoading, setIsLoading] = useState(false);
-    const [currentTrack, setCurrentTrack] = useState(() => audioPlayer.getCurrentTrack() || MOCK_TRACKS[0]);
-    const [isPlaying, setIsPlaying] = useState(() => audioPlayer.getIsPlaying());
+  // 3. All Effect Hooks
+  useEffect(() => {
+    fetchTracks();
+  }, []);
 
-    // Modals state
-    const [isProfileDrawerOpen, setIsProfileDrawerOpen] = useState(false);
-    const [isPlayerModalOpen, setIsPlayerModalOpen] = useState(false);
-    const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
-    const [isRecentsModalOpen, setIsRecentsModalOpen] = useState(false);
-    const [isMessagesModalOpen, setIsMessagesModalOpen] = useState(false);
-    const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  useEffect(() => {
+    if (typeof audioPlayer?.getCurrentTrack === 'function') {
+      setActiveTrack(audioPlayer.getCurrentTrack());
+    }
+    if (typeof audioPlayer?.getIsPlaying === 'function') {
+      setIsPlaying(audioPlayer.getIsPlaying());
+    }
 
-    // Contextual modals
-    const [selectedPlaylist, setSelectedPlaylist] = useState(null);
-    const [actionSheetTrack, setActionSheetTrack] = useState(null);
-    const [actionSheetPlaylistId, setActionSheetPlaylistId] = useState(null);
-    const [addToPlaylistTrack, setAddToPlaylistTrack] = useState(null);
+    if (typeof audioPlayer?.addListener !== 'function') return;
 
-    const loadTrending = useCallback(async () => {
-        setIsLoading(true);
-        try {
-            const result = await getTrendingMusic();
-            if (result && result.length > 0) {
-                setTracks(result);
-            } else {
-                setTracks(MOCK_TRACKS);
-            }
-        } catch (err) {
-            console.warn('Failed to load tracks, using fallback music:', err);
-            setTracks(MOCK_TRACKS);
-        } finally {
-            setIsLoading(false);
-        }
-    }, []);
+    const unsubscribe = audioPlayer.addListener((event, data) => {
+      if (data?.track) {
+        setActiveTrack(data.track);
+      }
+      if (data?.isPlaying !== undefined) {
+        setIsPlaying(!!data.isPlaying);
+      }
+    });
 
-    // Fetch initial trending tracks on mount
-    useEffect(() => {
-        loadTrending();
-    }, [loadTrending]);
-
-    const handleSearch = async (query) => {
-        setSearchQuery(query);
-        if (!query.trim()) {
-            loadTrending();
-            return;
-        }
-
-        setIsLoading(true);
-        try {
-            const results = await searchMusic(query);
-            setTracks(results);
-        } catch (err) {
-            console.warn('Search failed:', err);
-        } finally {
-            setIsLoading(false);
-        }
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
     };
+  }, []);
 
-    const handleLogout = () => {
-        Alert.alert(
-            'Sign Out',
-            'Are you sure you want to sign out of Spotify?',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Sign Out',
-                    style: 'destructive',
-                    onPress: async () => {
-                        try {
-                            audioPlayer.stop();
-                            await logout();
-                        } catch (e) {
-                            Alert.alert('Error', e.message);
-                        }
-                    },
-                },
-            ]
-        );
-    };
+  // 4. Handlers & Helper Functions
+  const fetchTracks = async () => {
+    setLoading(true);
+    try {
+      const data = await getTrendingMusic();
+      setTracks(data || []);
+    } catch (err) {
+      console.warn('Error fetching tracks:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    // Sync audio player state
-    useEffect(() => {
-        const unsubscribe = audioPlayer.addListener((event, data) => {
-            if (event === 'status') {
-                if (typeof data?.isPlaying === 'boolean') {
-                    setIsPlaying(data.isPlaying);
-                }
-                if (data?.track) {
-                    setCurrentTrack(data.track);
-                }
-            }
-        });
-        return () => {
-            unsubscribe();
-        };
-    }, []);
+  const handleSearch = async (text) => {
+    setSearchQuery(text);
+    if (!text.trim()) {
+      fetchTracks();
+      return;
+    }
+    setLoading(true);
+    try {
+      const results = await searchMusic(text);
+      setTracks(results || []);
+    } catch (err) {
+      console.warn('Search error:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    const togglePlay = () => {
-        if (!currentTrack) return;
-        audioPlayer.togglePlay(currentTrack);
-    };
+  const handlePlayTrack = async (track, index) => {
+    if (!track) return;
 
-    const handleSelectTrack = (track) => {
-        setCurrentTrack(track);
-        audioPlayer.playTrack(track, () => {
-            handleNextTrack();
-        });
-    };
+    if (typeof audioPlayer?.setQueue === 'function') {
+      audioPlayer.setQueue(tracks, index);
+    }
 
-    const handleNextTrack = () => {
-        // If items exist in userQueue, play first queued song!
-        if (userQueue.length > 0) {
-            const nextFromQueue = userQueue[0];
-            removeFromQueue(0);
-            setCurrentTrack(nextFromQueue);
-            audioPlayer.playTrack(nextFromQueue, () => {
-                handleNextTrack();
-            });
-            return;
-        }
+    setActiveTrack(track);
 
-        if (!tracks || tracks.length === 0 || !currentTrack) return;
-        const currentIndex = tracks.findIndex((t) => t.id === currentTrack.id);
-        const nextIndex = (currentIndex + 1) % tracks.length;
-        const nextTrack = tracks[nextIndex];
-        setCurrentTrack(nextTrack);
-        audioPlayer.playTrack(nextTrack, () => {
-            handleNextTrack();
-        });
-    };
+    const currentPlayingTrack =
+      typeof audioPlayer?.getCurrentTrack === 'function'
+        ? audioPlayer.getCurrentTrack()
+        : activeTrack;
 
-    const handlePreviousTrack = () => {
-        if (!tracks || tracks.length === 0 || !currentTrack) return;
-        const currentIndex = tracks.findIndex((t) => t.id === currentTrack.id);
-        const prevIndex = (currentIndex - 1 + tracks.length) % tracks.length;
-        const prevTrack = tracks[prevIndex];
-        setCurrentTrack(prevTrack);
-        audioPlayer.playTrack(prevTrack, () => {
-            handleNextTrack();
-        });
-    };
+    if (currentPlayingTrack?.id === track.id) {
+      await audioPlayer.togglePlay(track);
+    } else {
+      await audioPlayer.playTrack(track);
+    }
+  };
 
-    // Upcoming queue calculation: User queue first, then next songs
-    const upcomingQueue = useMemo(() => {
-        let baseList = [];
-        if (tracks && tracks.length > 0 && currentTrack) {
-            const currentIndex = tracks.findIndex((t) => t.id === currentTrack.id);
-            if (currentIndex !== -1) {
-                baseList = [...tracks.slice(currentIndex + 1), ...tracks.slice(0, currentIndex)];
-            } else {
-                baseList = tracks.slice(0, 5);
-            }
-        }
-        return [...userQueue, ...baseList];
-    }, [tracks, currentTrack, userQueue]);
+  const handlePlaylistClick = (playlist) => {
+    if (typeof onSelectPlaylist === 'function') {
+      onSelectPlaylist(playlist);
+      return;
+    }
 
-    const displayName =
-        userProfile?.displayName ||
-        user?.displayName ||
-        (user?.email ? user.email.split('@')[0] : 'Music Lover');
+    setSelectedPlaylist(playlist);
+    setIsPlaylistModalVisible(true);
+  };
 
-    const photoURL = userProfile?.photoURL || user?.photoURL || null;
+  const displayedPlaylists =
+    playlists.length > 0
+      ? playlists
+      : [
+          {
+            id: '1',
+            title: 'soft tagalog playlist',
+            artwork:
+              'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&q=80',
+          },
+          {
+            id: '2',
+            title: 'DJ Hits',
+            artwork:
+              'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=300&q=80',
+          },
+          {
+            id: '3',
+            title: 'OPM Favorites',
+            artwork:
+              'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&q=80',
+          },
+          {
+            id: '4',
+            title: 'Acoustic Chill',
+            artwork:
+              'https://images.unsplash.com/photo-1445985543470-41fba5c3144a?w=300&q=80',
+          },
+          {
+            id: '5',
+            title: 'Late Night Vibes',
+            artwork:
+              'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=300&q=80',
+          },
+          {
+            id: '6',
+            title: 'Workout Energy',
+            artwork:
+              'https://images.unsplash.com/photo-1518611012118-696072aa579a?w=300&q=80',
+          },
+        ];
 
-    // Render Track Item using SwipeableTrackRow with 3-dot menu and swipe gestures!
-    const renderTrackItem = ({ item }) => {
-        const isSelected = currentTrack?.id === item.id;
-        const isCurrentLiked = isLiked(item.id);
+  // 5. Render Components
+  const renderHeader = () => (
+    <View style={styles.headerContainer}>
+      {/* Top Bar with Avatar & Filter Pills */}
+      <View style={styles.topProfileBar}>
+        <TouchableOpacity style={styles.avatarBtn}>
+          <Image
+            source={{
+              uri: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&q=80',
+            }}
+            style={styles.avatarImage}
+          />
+        </TouchableOpacity>
 
-        return (
-            <SwipeableTrackRow
-                track={item}
-                isSelected={isSelected}
-                onPress={() => handleSelectTrack(item)}
-                onOpenMenu={(track) => {
-                    setActionSheetTrack(track);
-                    setActionSheetPlaylistId(null);
-                }}
-                onAddToQueue={(track) => addToQueue(track)}
-                onAddToPlaylist={(track) => setAddToPlaylistTrack(track)}
-                onToggleFavorite={(track) => toggleLikeTrack(track)}
-                isLiked={isCurrentLiked}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.pillsScroll}
+        >
+          {['All', 'Music', 'Podcasts'].map((tab) => (
+            <TouchableOpacity
+              key={tab}
+              style={[styles.pill, activeTab === tab && styles.pillActive]}
+              onPress={() => setActiveTab(tab)}
+            >
+              <Text
+                style={[
+                  styles.pillText,
+                  activeTab === tab && styles.pillTextActive,
+                ]}
+              >
+                {tab}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+
+      {/* 2-Column Grid for Stored App Playlists */}
+      <View style={styles.gridContainer}>
+        {displayedPlaylists.slice(0, 8).map((item) => (
+          <TouchableOpacity
+            key={item.id}
+            style={styles.gridCard}
+            activeOpacity={0.8}
+            onPress={() => handlePlaylistClick(item)}
+          >
+            <Image
+              source={{
+                uri:
+                  item.artwork ||
+                  item.cover ||
+                  'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&q=80',
+              }}
+              style={styles.gridCardImage}
             />
-        );
-    };
+            <Text style={styles.gridCardTitle} numberOfLines={2}>
+              {item.title || item.name || 'Playlist'}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
 
-    const renderMainContent = () => {
-        if (activeTab === TABS.LIBRARY) {
-            return (
-                <LibraryView
-                    onOpenPlaylist={(playlist) => setSelectedPlaylist(playlist)}
-                />
-            );
-        }
+      {/* Section 1: It's New Music Friday! */}
+      <View style={styles.sectionHeaderRow}>
+        <Text style={styles.sectionTitle}>It's New Music Friday!</Text>
+      </View>
 
-        if (activeTab === TABS.CREATE) {
-            return (
-                <CreateView
-                    onOpenPlaylist={(playlist) => setSelectedPlaylist(playlist)}
-                    onSwitchToLibrary={() => setActiveTab(TABS.LIBRARY)}
-                />
-            );
-        }
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.horizontalSectionScroll}
+      >
+        {tracks.slice(0, 6).map((item, index) => (
+          <TouchableOpacity
+            key={`nmf-${item.id}-${index}`}
+            style={styles.mediaCard}
+            activeOpacity={0.8}
+            onPress={() => handlePlayTrack(item, index)}
+          >
+            <Image
+              source={{
+                uri:
+                  item.artwork ||
+                  'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&q=80',
+              }}
+              style={styles.mediaCardImage}
+            />
+            <Text style={styles.mediaCardTitle} numberOfLines={1}>
+              {item.title}
+            </Text>
+            <Text style={styles.mediaCardSubtitle} numberOfLines={2}>
+              {item.artist}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
 
-        // Both Home & Search tabs display music feeds with search capability
-        return (
-            <View style={styles.tabContentContainer}>
-                {/* Search Bar */}
-                <View style={styles.searchContainer}>
-                    <TextInput
-                        style={styles.searchInput}
-                        placeholder={
-                            activeTab === TABS.SEARCH
-                                ? "What do you want to listen to?"
-                                : "Search songs, artists, or genres..."
-                        }
-                        placeholderTextColor={COLORS.textMuted}
-                        value={searchQuery}
-                        onChangeText={handleSearch}
-                        autoCapitalize="none"
-                        clearButtonMode="while-editing"
-                        autoFocus={activeTab === TABS.SEARCH}
-                    />
-                </View>
+      {/* Section 2: Made For You */}
+      <View style={styles.sectionHeaderRow}>
+        <Text style={styles.sectionTitle}>Made For You</Text>
+      </View>
 
-                {/* Section Title */}
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>
-                        {searchQuery.trim()
-                            ? 'Search Results'
-                            : activeTab === TABS.SEARCH
-                                ? 'Top Charts & Genres'
-                                : 'Trending Music'}
-                    </Text>
-                    <Text style={styles.trackCount}>{tracks.length} tracks</Text>
-                </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.horizontalSectionScroll}
+      >
+        {tracks.slice(6, 12).map((item, index) => (
+          <TouchableOpacity
+            key={`mfy-${item.id}-${index}`}
+            style={styles.mediaCard}
+            activeOpacity={0.8}
+            onPress={() => handlePlayTrack(item, index + 6)}
+          >
+            <Image
+              source={{
+                uri:
+                  item.artwork ||
+                  'https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=400&q=80',
+              }}
+              style={styles.mediaCardImage}
+            />
+            <Text style={styles.mediaCardTitle} numberOfLines={1}>
+              {item.title}
+            </Text>
+            <Text style={styles.mediaCardSubtitle} numberOfLines={2}>
+              {item.artist}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
 
-                {/* Track List */}
-                {isLoading ? (
-                    <View style={styles.loaderContainer}>
-                        <ActivityIndicator size="large" color={COLORS.primary} />
-                        <Text style={styles.loadingText}>Loading music...</Text>
-                    </View>
-                ) : (
-                    <FlatList
-                        data={tracks}
-                        keyExtractor={(item) => item.id}
-                        renderItem={renderTrackItem}
-                        style={styles.flatList}
-                        contentContainerStyle={[
-                            styles.listContent,
-                            { paddingBottom: currentTrack ? 90 : 30 },
-                        ]}
-                        showsVerticalScrollIndicator={false}
-                        ListEmptyComponent={
-                            <View style={styles.emptyContainer}>
-                                <Text style={styles.emptyTitle}>No tracks found</Text>
-                                <Text style={styles.emptySubtitle}>Try searching for another artist or song</Text>
-                            </View>
-                        }
-                    />
-                )}
-            </View>
-        );
-    };
+      {/* Section 3: Recommended Tracks Header */}
+      <Text style={[styles.sectionTitle, { marginTop: 16 }]}>
+        Recommended Tracks
+      </Text>
+    </View>
+  );
+
+  const renderTrackItem = ({ item, index }) => {
+    const isCurrent = activeTrack?.id === item.id;
+    const liked = typeof isLiked === 'function' ? isLiked(item.id) : false;
 
     return (
-        <SafeAreaView style={styles.safe}>
-            <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+      <TouchableOpacity
+        style={[styles.trackRow, isCurrent && styles.trackRowActive]}
+        activeOpacity={0.7}
+        onPress={() => handlePlayTrack(item, index)}
+      >
+        <Image
+          source={{
+            uri:
+              item.artwork ||
+              'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&q=80',
+          }}
+          style={styles.trackArtwork}
+        />
 
-            {/* Header with Clickable Profile Picture */}
-            <View
-                style={[
-                    styles.header,
-                    {
-                        paddingTop: Math.max(
-                            insets.top,
-                            Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 10
-                        ) + SPACE.xs,
-                    },
-                ]}
+        <View style={styles.trackInfo}>
+          <Text
+            style={[styles.trackTitle, isCurrent && styles.greenText]}
+            numberOfLines={1}
+          >
+            {item.title}
+          </Text>
+          <Text style={styles.trackArtist} numberOfLines={1}>
+            {item.artist}
+          </Text>
+        </View>
+
+        <View style={styles.actionButtons}>
+          <TouchableOpacity
+            onPress={() =>
+              typeof toggleLikeTrack === 'function' && toggleLikeTrack(item)
+            }
+            style={styles.iconBtn}
+          >
+            <Text
+              style={{ color: liked ? '#1DB954' : '#B3B3B3', fontSize: 16 }}
             >
-                <View style={styles.headerLeft}>
-                    {/* Profile Picture (Click opens Side Bar Drawer) */}
-                    <TouchableOpacity
-                        style={styles.avatarButton}
-                        activeOpacity={0.8}
-                        onPress={() => setIsProfileDrawerOpen(true)}
-                    >
-                        {photoURL ? (
-                            <Image source={{ uri: photoURL }} style={styles.avatar} />
-                        ) : (
-                            <View style={styles.avatarPlaceholder}>
-                                <Text style={styles.avatarInitial}>
-                                    {displayName.charAt(0).toUpperCase()}
-                                </Text>
-                            </View>
-                        )}
-                        <View style={styles.avatarOnlineDot} />
-                    </TouchableOpacity>
+              {liked ? '💚' : '♡'}
+            </Text>
+          </TouchableOpacity>
 
-                    <View style={styles.userInfoBox}>
-                        <Text style={styles.greeting}>Welcome back,</Text>
-                        <Text style={styles.userName} numberOfLines={1}>
-                            {displayName}
-                        </Text>
-                    </View>
-                </View>
-
-                {/* Quick Messages / Friends Button in header */}
-                <TouchableOpacity
-                    style={styles.headerIconBtn}
-                    onPress={() => setIsMessagesModalOpen(true)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                    <Text style={styles.headerEmojiIcon}>💬</Text>
-                    <View style={styles.headerBadge}>
-                        <Text style={styles.headerBadgeText}>2</Text>
-                    </View>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                    style={styles.signOutButton}
-                    onPress={handleLogout}
-                    activeOpacity={0.8}
-                >
-                    <Text style={styles.signOutText}>Sign Out</Text>
-                </TouchableOpacity>
-            </View>
-
-            {/* Tab Body View */}
-            <View style={styles.mainContainer}>
-                {renderMainContent()}
-            </View>
-
-            {/* Floating Toast Notification Banner */}
-            {toast && (
-                <View style={styles.toastContainer}>
-                    <Text style={styles.toastIcon}>{toast.icon || '✓'}</Text>
-                    <Text style={styles.toastMessage} numberOfLines={1}>{toast.message}</Text>
-                </View>
-            )}
-
-            {/* Mini Player Bar (Clicking anywhere opens Full Screen Player) */}
-            {currentTrack && (
-                <TouchableOpacity
-                    style={styles.playerBar}
-                    activeOpacity={0.92}
-                    onPress={() => setIsPlayerModalOpen(true)}
-                >
-                    <Image source={{ uri: currentTrack.artwork }} style={styles.playerArtwork} />
-                    <View style={styles.playerDetails}>
-                        <Text style={styles.playerTitle} numberOfLines={1}>
-                            {currentTrack.title}
-                        </Text>
-                        <Text style={styles.playerArtist} numberOfLines={1}>
-                            {currentTrack.artist}
-                        </Text>
-                    </View>
-
-                    {/* Quick Like / Heart button on mini player */}
-                    <TouchableOpacity
-                        style={styles.miniLikeButton}
-                        activeOpacity={0.7}
-                        onPress={(e) => {
-                            e.stopPropagation();
-                            toggleLikeTrack(currentTrack);
-                        }}
-                    >
-                        <Text style={[
-                            styles.miniLikeIcon,
-                            isLiked(currentTrack.id) && styles.miniLikeIconActive,
-                        ]}>
-                            {isLiked(currentTrack.id) ? '💚' : '♡'}
-                        </Text>
-                    </TouchableOpacity>
-
-                    {/* Play/Pause Button on mini player */}
-                    <TouchableOpacity
-                        style={styles.playButton}
-                        onPress={(e) => {
-                            e.stopPropagation();
-                            togglePlay();
-                        }}
-                        activeOpacity={0.8}
-                    >
-                        <Text style={styles.playButtonText}>
-                            {isPlaying ? '⏸' : '▶'}
-                        </Text>
-                    </TouchableOpacity>
-                </TouchableOpacity>
-            )}
-
-            {/* Bottom Navigation Bar: Home - Search - Your Library - Create */}
-            <BottomNavBar
-                activeTab={activeTab}
-                onSelectTab={(tab) => setActiveTab(tab)}
-            />
-
-            {/* Side Bar Drawer for Profile */}
-            <ProfileDrawer
-                visible={isProfileDrawerOpen}
-                onClose={() => setIsProfileDrawerOpen(false)}
-                user={user}
-                userProfile={userProfile}
-                onLogout={logout}
-                onOpenStats={() => setIsStatsModalOpen(true)}
-                onOpenRecents={() => setIsRecentsModalOpen(true)}
-                onOpenMessages={() => setIsMessagesModalOpen(true)}
-                onOpenSettings={() => setIsSettingsModalOpen(true)}
-            />
-
-            {/* Full Screen Music Player Modal */}
-            <FullScreenPlayerModal
-                visible={isPlayerModalOpen}
-                track={currentTrack}
-                isPlaying={isPlaying}
-                onTogglePlay={togglePlay}
-                onClose={() => setIsPlayerModalOpen(false)}
-                onNext={handleNextTrack}
-                onPrevious={handlePreviousTrack}
-                queue={upcomingQueue}
-            />
-
-            {/* User Stats Modal */}
-            <UserStatsModal
-                visible={isStatsModalOpen}
-                onClose={() => setIsStatsModalOpen(false)}
-                user={user}
-                userProfile={userProfile}
-            />
-
-            {/* Recent Played Songs & Albums Modal */}
-            <RecentPlayedModal
-                visible={isRecentsModalOpen}
-                onClose={() => setIsRecentsModalOpen(false)}
-                recentTracks={recentTracks}
-                onPlayTrack={handleSelectTrack}
-                currentTrack={currentTrack}
-                onOpenTrackMenu={(track) => {
-                    setActionSheetTrack(track);
-                    setActionSheetPlaylistId(null);
-                }}
-                onAddToQueue={addToQueue}
-                onAddToPlaylist={(track) => setAddToPlaylistTrack(track)}
-                onToggleFavorite={toggleLikeTrack}
-                isLiked={isLiked}
-            />
-
-            {/* Messages & Friend Activity Modal */}
-            <MessagesModal
-                visible={isMessagesModalOpen}
-                onClose={() => setIsMessagesModalOpen(false)}
-                onPlayTrack={handleSelectTrack}
-            />
-
-            {/* Settings Modal */}
-            <SettingsModal
-                visible={isSettingsModalOpen}
-                onClose={() => setIsSettingsModalOpen(false)}
-                user={user}
-                userProfile={userProfile}
-                onLogout={logout}
-            />
-
-            {/* Playlist Detail Modal */}
-            {selectedPlaylist && (
-                <PlaylistDetailModal
-                    visible={!!selectedPlaylist}
-                    playlist={
-                        playlists.find((p) => p.id === selectedPlaylist.id) || selectedPlaylist
-                    }
-                    onClose={() => setSelectedPlaylist(null)}
-                    onPlayTrack={handleSelectTrack}
-                    currentTrack={currentTrack}
-                    onOpenTrackMenu={(track, playlistId) => {
-                        setActionSheetTrack(track);
-                        setActionSheetPlaylistId(playlistId);
-                    }}
-                    onAddToQueue={addToQueue}
-                    onAddToPlaylist={(track) => setAddToPlaylistTrack(track)}
-                    onToggleFavorite={toggleLikeTrack}
-                    isLiked={isLiked}
-                    onDeletePlaylist={deletePlaylist}
-                />
-            )}
-
-            {/* Three-Dot Track Action Sheet Modal */}
-            <TrackActionSheetModal
-                visible={!!actionSheetTrack}
-                track={actionSheetTrack}
-                onClose={() => {
-                    setActionSheetTrack(null);
-                    setActionSheetPlaylistId(null);
-                }}
-                onAddToPlaylist={(track) => {
-                    setActionSheetTrack(null);
-                    setAddToPlaylistTrack(track);
-                }}
-                onRemoveFromPlaylist={
-                    actionSheetPlaylistId
-                        ? (track) => removeTrackFromPlaylist(actionSheetPlaylistId, track.id)
-                        : null
-                }
-                onAddToQueue={(track) => addToQueue(track)}
-                onToggleLike={(track) => toggleLikeTrack(track)}
-                isLiked={actionSheetTrack ? isLiked(actionSheetTrack.id) : false}
-                isInPlaylist={!!actionSheetPlaylistId}
-            />
-
-            {/* Add To Playlist Picker Modal */}
-            <AddToPlaylistModal
-                visible={!!addToPlaylistTrack}
-                track={addToPlaylistTrack}
-                playlists={playlists}
-                onClose={() => setAddToPlaylistTrack(null)}
-                onSelectPlaylist={(playlistId, track) => {
-                    addTrackToPlaylist(playlistId, track);
-                    setAddToPlaylistTrack(null);
-                }}
-                onCreatePlaylist={createPlaylist}
-            />
-        </SafeAreaView>
+          <TouchableOpacity
+            onPress={() =>
+              typeof addToQueue === 'function' && addToQueue(item)
+            }
+            style={styles.iconBtn}
+          >
+            <Text style={{ color: '#B3B3B3', fontSize: 18, fontWeight: 'bold' }}>
+              ≡
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
     );
-};
+  };
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#121212" />
+
+      {/* Search Bar */}
+      <View style={styles.searchBarContainer}>
+        <Text style={styles.searchIcon}>🔍</Text>
+        <TextInput
+          style={styles.searchInput}
+          placeholder="What do you want to listen to?"
+          placeholderTextColor="#777"
+          value={searchQuery}
+          onChangeText={handleSearch}
+        />
+      </View>
+
+      {loading ? (
+        <View style={styles.centerLoading}>
+          <ActivityIndicator size="large" color="#1DB954" />
+        </View>
+      ) : (
+        <FlatList
+          data={tracks}
+          keyExtractor={(item, index) => `${item.id}-${index}`}
+          renderItem={renderTrackItem}
+          ListHeaderComponent={renderHeader}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
+
+      {/* MiniPlayer */}
+      <MiniPlayer onPress={() => setIsPlayerModalVisible(true)} />
+
+      {/* Full Screen Player Modal */}
+      <FullScreenPlayerModal
+        visible={isPlayerModalVisible}
+        track={activeTrack}
+        isPlaying={isPlaying}
+        onClose={() => setIsPlayerModalVisible(false)}
+      />
+
+      {/* Playlist Detail Modal */}
+      <PlaylistDetailModal
+        visible={isPlaylistModalVisible}
+        playlist={selectedPlaylist}
+        onClose={() => setIsPlaylistModalVisible(false)}
+        onPlayTrack={(track) => handlePlayTrack(track, 0)}
+        currentTrack={activeTrack}
+        onAddToQueue={addToQueue}
+        onAddToPlaylist={addToPlaylist}
+        onToggleFavorite={toggleLikeTrack}
+        isLiked={isLiked}
+        onDeletePlaylist={deletePlaylist}
+      />
+    </SafeAreaView>
+  );
+}
 
 const styles = StyleSheet.create({
-    safe: {
-        flex: 1,
-        backgroundColor: COLORS.background,
-    },
-    mainContainer: {
-        flex: 1,
-    },
-    tabContentContainer: {
-        flex: 1,
-    },
-    header: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingHorizontal: SPACE.lg,
-        paddingTop: SPACE.xs,
-        paddingBottom: SPACE.sm,
-        borderBottomWidth: 1,
-        borderBottomColor: '#1F1F1F',
-    },
-    headerLeft: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        flex: 1,
-        flexShrink: 1,
-        marginRight: SPACE.xs,
-    },
-    avatarButton: {
-        position: 'relative',
-        marginRight: SPACE.md,
-        flexShrink: 0,
-    },
-    avatar: {
-        width: 46,
-        height: 46,
-        borderRadius: 23,
-        borderWidth: 1.5,
-        borderColor: COLORS.primary,
-    },
-    avatarPlaceholder: {
-        width: 46,
-        height: 46,
-        borderRadius: 23,
-        backgroundColor: '#282828',
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderWidth: 1.5,
-        borderColor: COLORS.primary,
-    },
-    avatarInitial: {
-        color: COLORS.primary,
-        fontSize: 18,
-        fontWeight: 'bold',
-    },
-    avatarOnlineDot: {
-        position: 'absolute',
-        bottom: 0,
-        right: 0,
-        width: 12,
-        height: 12,
-        borderRadius: 6,
-        backgroundColor: COLORS.primary,
-        borderWidth: 2,
-        borderColor: COLORS.background,
-    },
-    userInfoBox: {
-        flex: 1,
-        flexShrink: 1,
-    },
-    greeting: {
-        color: COLORS.textSecondary,
-        fontSize: 12,
-    },
-    userName: {
-        color: COLORS.textPrimary,
-        fontSize: 17,
-        fontWeight: 'bold',
-    },
-    headerIconBtn: {
-        position: 'relative',
-        paddingHorizontal: 8,
-        paddingVertical: 6,
-        marginRight: 6,
-    },
-    headerEmojiIcon: {
-        fontSize: 20,
-    },
-    headerBadge: {
-        position: 'absolute',
-        top: 2,
-        right: 2,
-        backgroundColor: COLORS.primary,
-        width: 16,
-        height: 16,
-        borderRadius: 8,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    headerBadgeText: {
-        color: COLORS.black,
-        fontSize: 9,
-        fontWeight: 'bold',
-    },
-    signOutButton: {
-        backgroundColor: COLORS.surfaceElevated,
-        paddingHorizontal: SPACE.md,
-        paddingVertical: SPACE.xs + 2,
-        borderRadius: RADIUS.circle,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        marginLeft: SPACE.xs,
-        flexShrink: 0,
-    },
-    signOutText: {
-        color: COLORS.textPrimary,
-        fontSize: 12,
-        fontWeight: '600',
-    },
-    searchContainer: {
-        paddingHorizontal: SPACE.lg,
-        marginTop: SPACE.sm,
-        marginBottom: SPACE.sm,
-    },
-    searchInput: {
-        backgroundColor: COLORS.inputBackground,
-        color: COLORS.textPrimary,
-        borderRadius: RADIUS.circle,
-        paddingHorizontal: SPACE.lg,
-        paddingVertical: SPACE.sm + 2,
-        fontSize: 14,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-    },
-    sectionHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingHorizontal: SPACE.lg,
-        paddingVertical: SPACE.sm,
-    },
-    sectionTitle: {
-        color: COLORS.textPrimary,
-        fontSize: 18,
-        fontWeight: 'bold',
-    },
-    trackCount: {
-        color: COLORS.textSecondary,
-        fontSize: 12,
-    },
-    flatList: {
-        flex: 1,
-    },
-    listContent: {
-        paddingHorizontal: SPACE.xs,
-        paddingTop: SPACE.xs,
-    },
-    loaderContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    loadingText: {
-        color: COLORS.textSecondary,
-        marginTop: SPACE.md,
-        fontSize: 14,
-    },
-    emptyContainer: {
-        alignItems: 'center',
-        paddingVertical: SPACE.xxl,
-    },
-    emptyTitle: {
-        color: COLORS.textPrimary,
-        fontSize: 16,
-        fontWeight: 'bold',
-    },
-    emptySubtitle: {
-        color: COLORS.textSecondary,
-        fontSize: 14,
-        marginTop: 4,
-    },
-    // Floating toast pill
-    toastContainer: {
-        position: 'absolute',
-        bottom: 120,
-        alignSelf: 'center',
-        backgroundColor: '#1E382B',
-        borderColor: COLORS.primary,
-        borderWidth: 1,
-        paddingHorizontal: 16,
-        paddingVertical: 10,
-        borderRadius: RADIUS.circle,
-        flexDirection: 'row',
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.4,
-        shadowRadius: 8,
-        elevation: 8,
-        zIndex: 999,
-        maxWidth: '85%',
-    },
-    toastIcon: {
-        fontSize: 15,
-        marginRight: 8,
-    },
-    toastMessage: {
-        color: COLORS.white,
-        fontSize: 13,
-        fontWeight: '600',
-    },
-    playerBar: {
-        backgroundColor: '#202020',
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: SPACE.md,
-        paddingVertical: SPACE.xs + 2,
-        borderTopWidth: 1,
-        borderTopColor: '#2C2C2C',
-        borderBottomWidth: 1,
-        borderBottomColor: '#171717',
-    },
-    playerArtwork: {
-        width: 44,
-        height: 44,
-        borderRadius: RADIUS.xs,
-        flexShrink: 0,
-    },
-    playerDetails: {
-        flex: 1,
-        flexShrink: 1,
-        marginLeft: SPACE.md,
-    },
-    playerTitle: {
-        color: COLORS.textPrimary,
-        fontSize: 14,
-        fontWeight: 'bold',
-    },
-    playerArtist: {
-        color: COLORS.textSecondary,
-        fontSize: 12,
-    },
-    miniLikeButton: {
-        padding: 8,
-        marginRight: 4,
-    },
-    miniLikeIcon: {
-        color: COLORS.textSecondary,
-        fontSize: 20,
-    },
-    miniLikeIconActive: {
-        color: COLORS.primary,
-    },
-    playButton: {
-        width: 38,
-        height: 38,
-        borderRadius: 19,
-        backgroundColor: COLORS.white,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginLeft: SPACE.xs,
-    },
-    playButtonText: {
-        color: COLORS.black,
-        fontSize: 15,
-        marginLeft: 1,
-    },
+  container: {
+    flex: 1,
+    backgroundColor: '#121212',
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight || 10 : 0,
+  },
+  searchBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#242424',
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 8,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    height: 40,
+  },
+  searchIcon: {
+    fontSize: 14,
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    color: '#FFF',
+    fontSize: 14,
+  },
+  headerContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  topProfileBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  avatarBtn: {
+    marginRight: 12,
+  },
+  avatarImage: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+  },
+  pillsScroll: {
+    flex: 1,
+  },
+  pill: {
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    backgroundColor: '#282828',
+    borderRadius: 20,
+    marginRight: 8,
+  },
+  pillActive: {
+    backgroundColor: '#1DB954',
+  },
+  pillText: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  pillTextActive: {
+    color: '#000',
+    fontWeight: 'bold',
+  },
+  gridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  gridCard: {
+    width: '48.5%',
+    height: 56,
+    backgroundColor: '#282828',
+    borderRadius: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    overflow: 'hidden',
+  },
+  gridCardImage: {
+    width: 56,
+    height: 56,
+    backgroundColor: '#333',
+  },
+  gridCardTitle: {
+    flex: 1,
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '700',
+    paddingHorizontal: 10,
+    lineHeight: 16,
+  },
+  sectionHeaderRow: {
+    marginVertical: 12,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#FFF',
+    marginBottom: 12,
+  },
+  horizontalSectionScroll: {
+    marginBottom: 16,
+    marginLeft: -16,
+    paddingLeft: 16,
+  },
+  mediaCard: {
+    width: 150,
+    marginRight: 16,
+  },
+  mediaCardImage: {
+    width: 150,
+    height: 150,
+    borderRadius: 8,
+    backgroundColor: '#282828',
+  },
+  mediaCardTitle: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: 'bold',
+    marginTop: 8,
+  },
+  mediaCardSubtitle: {
+    color: '#B3B3B3',
+    fontSize: 12,
+    marginTop: 4,
+    lineHeight: 16,
+  },
+  listContent: {
+    paddingBottom: 130,
+  },
+  trackRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  trackRowActive: {
+    backgroundColor: 'rgba(29, 185, 84, 0.08)',
+  },
+  trackArtwork: {
+    width: 44,
+    height: 44,
+    borderRadius: 4,
+    backgroundColor: '#282828',
+  },
+  trackInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  trackTitle: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  trackArtist: {
+    color: '#B3B3B3',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  greenText: {
+    color: '#1DB954',
+    fontWeight: 'bold',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconBtn: {
+    padding: 6,
+    marginLeft: 4,
+  },
+  centerLoading: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 });
-
-export default HomeScreen;

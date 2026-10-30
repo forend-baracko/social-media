@@ -110,6 +110,9 @@ android {
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
+    
+    // ADD THIS LINE HERE:
+    implementation project(':react-native-sound')
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")

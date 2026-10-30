@@ -1,759 +1,599 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-    Modal,
-    View,
-    Text,
-    StyleSheet,
-    Image,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    Dimensions,
-    ScrollView,
-    Share,
-    Alert,
-    Platform,
-    Animated,
-    PanResponder,
-    StatusBar,
+  View,
+  Text,
+  StyleSheet,
+  Image,
+  TouchableOpacity,
+  Modal,
+  ScrollView,
+  Dimensions,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, SPACE } from '../../constants/theme';
-import audioPlayer from '../../services/audioPlayer';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import audioPlayer, { REPEAT_MODE } from '../../services/audioPlayer';
+import { useMusic } from '../../context/MusicContext';
+import QueueModal from './QueueModal';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
-// ─── Swipe-to-close threshold ─────────────────────────────────────────────────
-const SWIPE_DOWN_THRESHOLD = SCREEN_HEIGHT * 0.22; // 22% of screen height triggers close
-const SWIPE_VELOCITY_THRESHOLD = 0.5;              // fast flick also triggers close
+export default function FullScreenPlayerModal({
+  visible,
+  track: propTrack,
+  isPlaying: propIsPlaying,
+  onClose,
+}) {
+  const musicContext = useMusic() || {};
+  const { toggleLikeTrack, isLiked } = musicContext;
 
-// ─── Three-Dot Options Dropdown ──────────────────────────────────────────────
-const OptionsDropdown = ({ visible, onClose, track, onShare, onToggleLike, isLiked, topOffset }) => {
-    const scaleAnim = useRef(new Animated.Value(0.88)).current;
-    const fadeAnim  = useRef(new Animated.Value(0)).current;
+  // 1. ALL HOOKS MUST BE DECLARED FIRST
+  const [track, setTrack] = useState(() => propTrack || audioPlayer?.getCurrentTrack?.());
+  const [isPlaying, setIsPlaying] = useState(propIsPlaying);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(230);
+  const [isShuffle, setIsShuffle] = useState(false);
+  const [repeatMode, setRepeatMode] = useState(REPEAT_MODE.OFF);
+  const [isQueueModalVisible, setIsQueueModalVisible] = useState(false);
 
-    useEffect(() => {
-        if (visible) {
-            Animated.parallel([
-                Animated.timing(fadeAnim,  { toValue: 1, duration: 180, useNativeDriver: true }),
-                Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, tension: 200, friction: 15 }),
-            ]).start();
-        } else {
-            Animated.parallel([
-                Animated.timing(fadeAnim,  { toValue: 0, duration: 120, useNativeDriver: true }),
-                Animated.timing(scaleAnim, { toValue: 0.88, duration: 120, useNativeDriver: true }),
-            ]).start();
-        }
-    }, [visible]);
+  // Sync state whenever modal opens or props change
+  useEffect(() => {
+    if (visible) {
+      const active = audioPlayer?.getCurrentTrack?.() || propTrack;
+      if (active) setTrack(active);
+      setIsPlaying(audioPlayer?.getIsPlaying?.() ?? propIsPlaying);
+    }
+  }, [visible, propTrack, propIsPlaying]);
 
-    if (!track) return null;
+  // Audio player event listener
+  useEffect(() => {
+    if (typeof audioPlayer?.getCurrentTrack === 'function') {
+      const cur = audioPlayer.getCurrentTrack();
+      if (cur) setTrack(cur);
+    }
+    if (typeof audioPlayer?.getIsPlaying === 'function') {
+      setIsPlaying(audioPlayer.getIsPlaying());
+    }
 
-    const options = [
-        { icon: '↗', label: 'Share',                  onPress: () => { onClose(); onShare(); } },
-        { icon: '+', label: 'Add to playlist',         onPress: () => { onClose(); Alert.alert('Add to Playlist', `"${track.title}" added to playlist.`); } },
-        { icon: '⬇', label: 'Add to queue',           onPress: () => { onClose(); Alert.alert('Add to Queue',    `"${track.title}" added to queue.`); } },
-        { icon: isLiked ? '♥' : '♡',
-          label: isLiked ? 'Remove from Liked Songs' : 'Save to Liked Songs',
-          onPress: () => { onClose(); onToggleLike(); }, active: isLiked },
-        { icon: '◎', label: 'Go to artist',           onPress: () => { onClose(); Alert.alert('Go to Artist', `Viewing ${track.artist}'s profile.`); } },
-        { icon: '◉', label: 'Go to album',            onPress: () => { onClose(); Alert.alert('Go to Album',  `Viewing: ${track.album || 'Unknown Album'}`); } },
-        { icon: '≡', label: 'View credits',            onPress: () => { onClose(); Alert.alert('Credits',     `${track.title} · ${track.artist}`); } },
-        { icon: '✕', label: "Don't play this",        onPress: () => { onClose(); Alert.alert('Preference',   `We'll play less like "${track.title}".`); } },
-    ];
+    if (typeof audioPlayer?.addListener !== 'function') return;
 
-    return (
-        <TouchableWithoutFeedback onPress={onClose}>
-            <View style={dropStyles.overlay}>
-                <TouchableWithoutFeedback>
-                    <Animated.View style={[
-                        dropStyles.menu,
-                        { top: topOffset + 8, opacity: fadeAnim, transform: [{ scale: scaleAnim }] },
-                    ]}>
-                        <View style={dropStyles.trackPreview}>
-                            <Image source={{ uri: track.artwork }} style={dropStyles.previewArt} />
-                            <View style={dropStyles.previewInfo}>
-                                <Text style={dropStyles.previewTitle}  numberOfLines={1}>{track.title}</Text>
-                                <Text style={dropStyles.previewArtist} numberOfLines={1}>{track.artist}</Text>
-                            </View>
-                        </View>
-                        <View style={dropStyles.divider} />
-                        {options.map((opt, i) => (
-                            <TouchableOpacity key={i} style={dropStyles.optionRow} onPress={opt.onPress} activeOpacity={0.65}>
-                                <Text style={[dropStyles.optionIcon,  opt.active && dropStyles.optionIconActive]}>{opt.icon}</Text>
-                                <Text style={[dropStyles.optionLabel, opt.active && dropStyles.optionLabelActive]}>{opt.label}</Text>
-                            </TouchableOpacity>
-                        ))}
-                    </Animated.View>
-                </TouchableWithoutFeedback>
-            </View>
-        </TouchableWithoutFeedback>
-    );
-};
+    const unsubscribe = audioPlayer.addListener((event, data) => {
+      if (event === 'mode') {
+        if (data?.isShuffle !== undefined) setIsShuffle(data.isShuffle);
+        if (data?.repeatMode !== undefined) setRepeatMode(data.repeatMode);
+        return;
+      }
 
-const dropStyles = StyleSheet.create({
-    overlay: { ...StyleSheet.absoluteFillObject, zIndex: 999 },
-    menu: {
-        position: 'absolute',
-        right: 16,
-        width: SCREEN_WIDTH * 0.76,
-        backgroundColor: '#1C1C1E',
-        borderRadius: 16,
-        overflow: 'hidden',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.6,
-        shadowRadius: 20,
-        elevation: 20,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.07)',
-    },
-    trackPreview:  { flexDirection: 'row', alignItems: 'center', padding: 14 },
-    previewArt:    { width: 46, height: 46, borderRadius: 6 },
-    previewInfo:   { flex: 1, marginLeft: 12 },
-    previewTitle:  { color: '#FFF', fontSize: 14, fontWeight: '700' },
-    previewArtist: { color: '#A0A0A0', fontSize: 12, marginTop: 2 },
-    divider:       { height: 0.5, backgroundColor: 'rgba(255,255,255,0.12)', marginHorizontal: 14 },
-    optionRow:     { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, paddingVertical: 14 },
-    optionIcon:    { fontSize: 18, width: 28, color: '#B0B0B0' },
-    optionIconActive:  { color: COLORS.primary },
-    optionLabel:       { color: '#E5E5E5', fontSize: 15, marginLeft: 10, fontWeight: '500' },
-    optionLabelActive: { color: COLORS.primary },
-});
+      if (data?.track) setTrack(data.track);
+      if (data?.isPlaying !== undefined) setIsPlaying(!!data.isPlaying);
+      if (data?.currentTime !== undefined) setCurrentTime(data.currentTime);
+      if (data?.duration !== undefined) setDuration(data.duration);
+      if (data?.isShuffle !== undefined) setIsShuffle(data.isShuffle);
+      if (data?.repeatMode !== undefined) setRepeatMode(data.repeatMode);
+    });
 
-// ─── Main Full-Screen Player ──────────────────────────────────────────────────
-const FullScreenPlayerModal = ({
-    visible,
-    track,
-    isPlaying,
-    onTogglePlay,
-    onClose,
-    onNext,
-    onPrevious,
-    queue = [],
-}) => {
-    const insets = useSafeAreaInsets();
-
-    // Player state
-    const [progressSeconds, setProgressSeconds] = useState(0);
-    const [durationSeconds, setDurationSeconds] = useState(230);
-    const [isLiked,   setIsLiked]   = useState(false);
-    const [isShuffle, setIsShuffle] = useState(false);
-    const [repeatMode,    setRepeatMode]    = useState('off');
-    const [showQueueModal, setShowQueueModal] = useState(false);
-    const [showOptions,    setShowOptions]    = useState(false);
-
-    // Swipe-to-close animation
-    const translateY = useRef(new Animated.Value(0)).current;
-    const lastGestureY = useRef(0);
-
-    const panResponder = useRef(
-        PanResponder.create({
-            // Only capture downward vertical swipes that start on the drag handle or top zone
-            onMoveShouldSetPanResponder: (_, gs) =>
-                gs.dy > 8 && Math.abs(gs.dy) > Math.abs(gs.dx),
-            onPanResponderMove: (_, gs) => {
-                // Only allow dragging downward (positive dy)
-                if (gs.dy > 0) {
-                    translateY.setValue(gs.dy);
-                    lastGestureY.current = gs.dy;
-                }
-            },
-            onPanResponderRelease: (_, gs) => {
-                const shouldClose =
-                    gs.dy > SWIPE_DOWN_THRESHOLD ||
-                    (gs.vy > SWIPE_VELOCITY_THRESHOLD && gs.dy > 60);
-
-                if (shouldClose) {
-                    // Slide all the way down then close
-                    Animated.timing(translateY, {
-                        toValue: SCREEN_HEIGHT,
-                        duration: 260,
-                        useNativeDriver: true,
-                    }).start(() => {
-                        translateY.setValue(0);
-                        onClose();
-                    });
-                } else {
-                    // Snap back to top
-                    Animated.spring(translateY, {
-                        toValue: 0,
-                        useNativeDriver: true,
-                        tension: 180,
-                        friction: 20,
-                    }).start();
-                }
-            },
-            onPanResponderTerminate: () => {
-                Animated.spring(translateY, {
-                    toValue: 0,
-                    useNativeDriver: true,
-                }).start();
-            },
-        })
-    ).current;
-
-    // Reset position when modal opens
-    useEffect(() => {
-        if (visible) translateY.setValue(0);
-    }, [visible]);
-
-    // Parse "3:50" → seconds
-    useEffect(() => {
-        if (track?.duration) {
-            const parts = track.duration.split(':');
-            if (parts.length === 2) {
-                const total = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
-                if (!isNaN(total)) setDurationSeconds(total);
-            }
-        }
-    }, [track]);
-
-    // Live audio progress
-    useEffect(() => {
-        const unsub = audioPlayer.addListener((event, data) => {
-            if (event === 'progress') {
-                if (typeof data.currentTime === 'number') setProgressSeconds(data.currentTime);
-                if (data.duration && data.duration > 0) setDurationSeconds(data.duration);
-            }
-        });
-        return () => unsub();
-    }, []);
-
-    if (!track) return null;
-
-    const formatTime = (secs) => {
-        const m = Math.floor(secs / 60);
-        const s = Math.floor(secs % 60);
-        return `${m}:${s < 10 ? '0' : ''}${s}`;
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
     };
+  }, [visible]);
 
-    const remaining       = Math.max(durationSeconds - progressSeconds, 0);
-    const progressPercent = Math.min((progressSeconds / (durationSeconds || 1)) * 100, 100);
+  // 2. COMPUTED VARIABLES & GUARDS AFTER ALL HOOKS
+  const currentActiveTrack = track || propTrack || audioPlayer?.getCurrentTrack?.();
 
-    const handleShare = async () => {
-        try {
-            await Share.share({ message: `Check out "${track.title}" by ${track.artist} on Spotify!` });
-        } catch {
-            Alert.alert('Share', `Sharing "${track.title}"`);
-        }
-    };
+  // Safe early return ONLY after hooks have run
+  if (!visible && !currentActiveTrack) {
+    return null;
+  }
 
-    const toggleLike = () => {
-        const next = !isLiked;
-        setIsLiked(next);
-        Alert.alert(
-            next ? 'Saved to Liked Songs' : 'Removed',
-            next ? `"${track.title}" added to Liked Songs.` : `"${track.title}" removed.`
+  const liked =
+    typeof isLiked === 'function' && currentActiveTrack?.id
+      ? isLiked(currentActiveTrack.id)
+      : false;
+
+  const formatTime = (secs) => {
+    const minutes = Math.floor(secs / 60) || 0;
+    const remainingSeconds = Math.floor(secs % 60) || 0;
+    return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
+  };
+
+  const handleToggleShuffle = () => {
+    if (typeof audioPlayer?.toggleShuffle === 'function') {
+      const nextState = audioPlayer.toggleShuffle();
+      setIsShuffle(nextState);
+    }
+  };
+
+  const handleToggleRepeat = () => {
+    if (typeof audioPlayer?.toggleRepeat === 'function') {
+      const nextState = audioPlayer.toggleRepeat();
+      setRepeatMode(nextState);
+    }
+  };
+
+  const handleSeek = (event) => {
+    const touchX = event.nativeEvent.locationX;
+    const barWidth = width - 40;
+    const percentage = Math.max(0, Math.min(1, touchX / barWidth));
+    const targetSeconds = Math.floor(percentage * (duration || 230));
+
+    if (typeof audioPlayer?.seekTo === 'function') {
+      audioPlayer.seekTo(targetSeconds);
+    }
+  };
+
+  const renderRepeatIcon = () => {
+    if (repeatMode === REPEAT_MODE.ONE) return '🔂';
+    if (repeatMode === REPEAT_MODE.ALL) return '🔁';
+    return '🔁';
+  };
+
+  const renderLyricsContent = () => {
+    const lyricsData = currentActiveTrack?.lyrics;
+
+    if (!lyricsData) {
+      return (
+        <Text style={styles.lyricsText}>
+          {`I can't stop thinking 'bout you...\nEvery single night and day...\nWhen the silence fills the room...\nI hear your voice again.`}
+        </Text>
+      );
+    }
+
+    if (Array.isArray(lyricsData)) {
+      return lyricsData.map((lineObj, idx) => {
+        const textContent =
+          typeof lineObj === 'string'
+            ? lineObj
+            : lineObj?.text || lineObj?.line || '';
+        return (
+          <Text key={idx} style={styles.lyricsLineText}>
+            {textContent}
+          </Text>
         );
-    };
+      });
+    }
 
-    const toggleRepeat = () => {
-        if (repeatMode === 'off')  setRepeatMode('all');
-        else if (repeatMode === 'all') setRepeatMode('one');
-        else setRepeatMode('off');
-    };
+    if (typeof lyricsData === 'string') {
+      return <Text style={styles.lyricsText}>{lyricsData}</Text>;
+    }
 
-    const handleSeek = (e) => {
-        const ratio    = Math.max(0, Math.min(1, e.nativeEvent.locationX / (SCREEN_WIDTH - SPACE.lg * 2)));
-        const seekSecs = Math.floor(ratio * durationSeconds);
-        setProgressSeconds(seekSecs);
-        audioPlayer.seekTo(seekSecs);
-    };
+    return <Text style={styles.lyricsText}>No lyrics available.</Text>;
+  };
 
-    // Safe-area-aware top/bottom padding
-    const safeTop    = Math.max(insets.top,    Platform.OS === 'android' ? (StatusBar.currentHeight || 24) : 0);
-    const safeBottom = Math.max(insets.bottom, 8);
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={onClose}
+    >
+      <SafeAreaView style={styles.container}>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onClose} style={styles.headerBtn}>
+            <Text style={styles.headerBtnText}>∨</Text>
+          </TouchableOpacity>
+          <View style={styles.headerTitleContainer}>
+            <Text style={styles.headerSubTitle}>PLAYING FROM PLAYLIST</Text>
+            <Text style={styles.headerMainTitle} numberOfLines={1}>
+              {currentActiveTrack?.album || 'Recommended Tracks'}
+            </Text>
+          </View>
+          <TouchableOpacity style={styles.headerBtn}>
+            <Text style={styles.headerBtnText}>⋮</Text>
+          </TouchableOpacity>
+        </View>
 
-    // Top-bar height for dropdown positioning
-    const topBarBottom = safeTop + 52; // safeTop + topBar height
-
-    const deviceName = Platform.select({ ios: 'iPhone', android: 'This device', default: 'Mobile Device' });
-
-    return (
-        <Modal
-            visible={visible}
-            animationType="slide"
-            transparent={false}
-            onRequestClose={onClose}
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
         >
-            <StatusBar barStyle="light-content" backgroundColor="#0B0B0B" />
+          {/* Main Artwork */}
+          <View style={styles.artworkContainer}>
+            <Image
+              source={{
+                uri:
+                  currentActiveTrack?.artwork ||
+                  'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&q=80',
+              }}
+              style={styles.artwork}
+            />
+          </View>
 
-            {/* Root container – receives pan gesture */}
-            <Animated.View
-                style={[styles.container, { transform: [{ translateY }] }]}
-                {...panResponder.panHandlers}
+          {/* Title, Artist & Like Button */}
+          <View style={styles.detailsRow}>
+            <View style={styles.detailsTextContainer}>
+              <Text style={styles.title} numberOfLines={1}>
+                {currentActiveTrack?.title || 'Unknown Title'}
+              </Text>
+              <Text style={styles.artist} numberOfLines={1}>
+                {currentActiveTrack?.artist || 'Unknown Artist'}
+              </Text>
+            </View>
+            <TouchableOpacity
+              onPress={() =>
+                typeof toggleLikeTrack === 'function' &&
+                currentActiveTrack &&
+                toggleLikeTrack(currentActiveTrack)
+              }
+              style={styles.likeBtn}
             >
-                {/* ── Background blur layer (z=0) ── */}
-                <View style={styles.backgroundLayer} pointerEvents="none">
-                    <Image
-                        source={{ uri: track.artwork }}
-                        style={StyleSheet.absoluteFillObject}
-                        blurRadius={Platform.OS === 'ios' ? 28 : 20}
-                    />
-                    <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(8,8,8,0.80)' }]} />
-                </View>
+              <Text style={{ fontSize: 24, color: liked ? '#1DB954' : '#B3B3B3' }}>
+                {liked ? '💚' : '♡'}
+              </Text>
+            </TouchableOpacity>
+          </View>
 
-                {/* ── Content layer (z=10) – safe-area-aware ── */}
-                <View style={[styles.contentLayer, { paddingTop: safeTop, paddingBottom: safeBottom }]}>
+          {/* Clickable Seek Bar */}
+          <View style={styles.progressContainer}>
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={handleSeek}
+              style={styles.touchableBarArea}
+              hitSlop={{ top: 12, bottom: 12 }}
+            >
+              <View style={styles.progressBar}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    {
+                      width: `${Math.min(
+                        100,
+                        (currentTime / (duration || 1)) * 100
+                      )}%`,
+                    },
+                  ]}
+                />
+                <View
+                  style={[
+                    styles.progressKnob,
+                    {
+                      left: `${Math.min(
+                        98,
+                        (currentTime / (duration || 1)) * 100
+                      )}%`,
+                    },
+                  ]}
+                />
+              </View>
+            </TouchableOpacity>
 
-                    {/* Drag handle indicator */}
-                    <View style={styles.dragHandle} />
+            <View style={styles.timeRow}>
+              <Text style={styles.timeText}>{formatTime(currentTime)}</Text>
+              <Text style={styles.timeText}>{formatTime(duration)}</Text>
+            </View>
+          </View>
 
-                    {/* ── Top Bar ── */}
-                    <View style={styles.topBar}>
-                        <TouchableOpacity onPress={onClose} style={styles.topIconBtn} activeOpacity={0.7}>
-                            <Text style={styles.chevronDown}>{'⌄'}</Text>
-                        </TouchableOpacity>
+          {/* Playback Controls */}
+          <View style={styles.controlsRow}>
+            <TouchableOpacity onPress={handleToggleShuffle} style={styles.smallControlBtn}>
+              <Text style={[styles.smallControlIcon, isShuffle && styles.activeGreen]}>
+                🔀
+              </Text>
+            </TouchableOpacity>
 
-                        <View style={styles.headerTitleBox}>
-                            <Text style={styles.playlistSubtitle}>PLAYING FROM PLAYLIST</Text>
-                            <Text style={styles.playlistName} numberOfLines={1}>
-                                {track.album || "Today's Top Hits"}
-                            </Text>
-                        </View>
+            <TouchableOpacity
+              onPress={() => audioPlayer.playPrevious()}
+              style={styles.mainControlBtn}
+            >
+              <Text style={styles.mainControlIcon}>⏮</Text>
+            </TouchableOpacity>
 
-                        <TouchableOpacity
-                            style={styles.topIconBtn}
-                            onPress={() => setShowOptions((v) => !v)}
-                            activeOpacity={0.7}
-                        >
-                            <Text style={styles.moreOptions}>{'•••'}</Text>
-                        </TouchableOpacity>
-                    </View>
+            <TouchableOpacity
+              onPress={() => currentActiveTrack && audioPlayer.togglePlay(currentActiveTrack)}
+              style={styles.playPauseBtn}
+            >
+              <Text style={styles.playPauseIcon}>{isPlaying ? '⏸' : '▶'}</Text>
+            </TouchableOpacity>
 
-                    {/* ── Scrollable Body ── */}
-                    <ScrollView
-                        showsVerticalScrollIndicator={false}
-                        contentContainerStyle={[styles.scrollContent, { paddingBottom: safeBottom + 16 }]}
-                        scrollEnabled={!showOptions}
-                        // Don't let ScrollView at top compete with swipe-down pan
-                        scrollEventThrottle={16}
-                    >
-                        {/* Album Artwork */}
-                        <View style={styles.artworkContainer}>
-                            <Image source={{ uri: track.artwork }} style={styles.albumArt} />
-                        </View>
+            <TouchableOpacity
+              onPress={() => audioPlayer.playNext()}
+              style={styles.mainControlBtn}
+            >
+              <Text style={styles.mainControlIcon}>⏭</Text>
+            </TouchableOpacity>
 
-                        {/* Track Name + Artist + Like */}
-                        <View style={styles.metaRow}>
-                            <View style={styles.titleArtistBox}>
-                                <Text style={styles.trackTitle}  numberOfLines={1}>{track.title}</Text>
-                                <Text style={styles.trackArtist} numberOfLines={1}>{track.artist}</Text>
-                            </View>
-                            <TouchableOpacity onPress={toggleLike} style={styles.likeBtn} activeOpacity={0.7}>
-                                <Text style={[styles.likeIcon, isLiked && styles.likeIconActive]}>
-                                    {isLiked ? '♥' : '♡'}
-                                </Text>
-                            </TouchableOpacity>
-                        </View>
+            <TouchableOpacity onPress={handleToggleRepeat} style={styles.smallControlBtn}>
+              <Text
+                style={[
+                  styles.smallControlIcon,
+                  repeatMode !== REPEAT_MODE.OFF && styles.activeGreen,
+                ]}
+              >
+                {renderRepeatIcon()}
+              </Text>
+            </TouchableOpacity>
+          </View>
 
-                        {/* Progress / Seek Bar */}
-                        <View style={styles.progressContainer}>
-                            <TouchableOpacity style={styles.seekTrack} activeOpacity={1} onPress={handleSeek}>
-                                <View style={[styles.seekFill, { width: `${progressPercent}%` }]} />
-                                <View style={[styles.seekThumb, { left: `${Math.max(progressPercent - 1, 0)}%` }]} />
-                            </TouchableOpacity>
-                            <View style={styles.timeRow}>
-                                <Text style={styles.timeText}>{formatTime(progressSeconds)}</Text>
-                                <Text style={styles.timeText}>{'-'}{formatTime(remaining)}</Text>
-                            </View>
-                        </View>
+          {/* Utility Row */}
+          <View style={styles.bottomUtilityRow}>
+            <TouchableOpacity style={styles.utilityBtn}>
+              <Text style={styles.utilityIcon}>🎧</Text>
+            </TouchableOpacity>
+            
+            {/* Clean Queue Icon Button */}
+            <TouchableOpacity
+              style={styles.utilityBtn}
+              onPress={() => setIsQueueModalVisible(true)}
+            >
+              <Text style={[styles.utilityIcon, { fontSize: 22, fontWeight: 'bold' }]}>≡</Text>
+            </TouchableOpacity>
+          </View>
 
-                        {/* ── Controls: Shuffle | Prev | Play/Pause | Next | Repeat ── */}
-                        <View style={styles.controlsRow}>
-                            <TouchableOpacity onPress={() => setIsShuffle(v => !v)} style={styles.controlBtn} activeOpacity={0.7}>
-                                <Text style={[styles.controlIcon, isShuffle && styles.controlIconActive]}>{'⇄'}</Text>
-                                {isShuffle && <View style={styles.activeDot} />}
-                            </TouchableOpacity>
+          {/* Lyrics Card */}
+          <View style={styles.cardContainer}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>Lyrics</Text>
+              <TouchableOpacity style={styles.expandCardBtn}>
+                <Text style={styles.expandCardText}>FULLSCREEN</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.lyricsWrapper}>{renderLyricsContent()}</View>
+          </View>
 
-                            <TouchableOpacity onPress={onPrevious} style={styles.controlBtn} activeOpacity={0.7}>
-                                <Text style={styles.skipIcon}>{'⏮'}</Text>
-                            </TouchableOpacity>
+          {/* About Artist Card */}
+          <View style={[styles.cardContainer, { marginBottom: 30 }]}>
+            <Text style={styles.cardTitle}>About the artist</Text>
+            <View style={styles.artistCardHeader}>
+              <Image
+                source={{
+                  uri:
+                    currentActiveTrack?.artwork ||
+                    'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&q=80',
+                }}
+                style={styles.artistCardAvatar}
+              />
+              <View style={styles.artistCardInfo}>
+                <Text style={styles.artistCardName}>
+                  {currentActiveTrack?.artist || 'Unknown Artist'}
+                </Text>
+                <Text style={styles.artistCardListeners}>
+                  2,841,920 monthly listeners
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.artistCardBio} numberOfLines={4}>
+              {typeof currentActiveTrack?.artistBio === 'string'
+                ? currentActiveTrack.artistBio
+                : `${currentActiveTrack?.artist || 'This artist'} is an acclaimed singer-songwriter known for blending emotive storytelling with rich indie-pop production.`}
+            </Text>
+          </View>
+        </ScrollView>
 
-                            <TouchableOpacity onPress={onTogglePlay} style={styles.playPauseBtn} activeOpacity={0.85}>
-                                <Text style={styles.playPauseText}>{isPlaying ? '⏸' : '▶'}</Text>
-                            </TouchableOpacity>
+        {/* Queue Slide-up Overlay */}
+        <QueueModal
+          visible={isQueueModalVisible}
+          onClose={() => setIsQueueModalVisible(false)}
+        />
+      </SafeAreaView>
+    </Modal>
+  );
+}
 
-                            <TouchableOpacity onPress={onNext} style={styles.controlBtn} activeOpacity={0.7}>
-                                <Text style={styles.skipIcon}>{'⏭'}</Text>
-                            </TouchableOpacity>
-
-                            <TouchableOpacity onPress={toggleRepeat} style={styles.controlBtn} activeOpacity={0.7}>
-                                <Text style={[styles.controlIcon, repeatMode !== 'off' && styles.controlIconActive]}>
-                                    {repeatMode === 'one' ? '🔂' : '🔁'}
-                                </Text>
-                                {repeatMode !== 'off' && <View style={styles.activeDot} />}
-                            </TouchableOpacity>
-                        </View>
-
-                        {/* ── Bottom Tool Bar: Device | Share + Queue ── */}
-                        <View style={styles.bottomBar}>
-                            <TouchableOpacity
-                                style={styles.deviceBadge}
-                                activeOpacity={0.75}
-                                onPress={() => Alert.alert('Listening on', `Playing on: ${deviceName}`)}
-                            >
-                                <Text style={styles.deviceEmoji}>{'📱'}</Text>
-                                <Text style={styles.deviceText} numberOfLines={1}>{deviceName}</Text>
-                            </TouchableOpacity>
-
-                            <View style={styles.rightTools}>
-                                <TouchableOpacity onPress={handleShare} style={styles.toolBtn} activeOpacity={0.7}>
-                                    <Text style={styles.toolBtnIcon}>{'↗'}</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity onPress={() => setShowQueueModal(true)} style={styles.toolBtn} activeOpacity={0.7}>
-                                    <View style={styles.queueIconWrap}>
-                                        <View style={styles.queueLine} />
-                                        <View style={[styles.queueLine, { width: 14 }]} />
-                                        <View style={styles.queueLine} />
-                                    </View>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-
-                        {/* About the Artist */}
-                        <View style={styles.artistCard}>
-                            <Text style={styles.artistCardTitle}>About the artist</Text>
-                            <Image source={{ uri: track.artwork }} style={styles.artistCardImage} />
-                            <View style={styles.artistCardBody}>
-                                <Text style={styles.artistCardName}>{track.artist}</Text>
-                                <Text style={styles.artistListeners}>
-                                    {track.plays ? `${track.plays} monthly streams` : '84,920,110 monthly listeners'}
-                                </Text>
-                                <Text style={styles.artistBio}>
-                                    Award-winning hitmaker dominating global charts. Known for record-shattering
-                                    singles, visionary production and global stadium tours.
-                                </Text>
-                                <TouchableOpacity
-                                    style={styles.followBtn}
-                                    activeOpacity={0.8}
-                                    onPress={() => Alert.alert('Follow', `You are now following ${track.artist}!`)}
-                                >
-                                    <Text style={styles.followBtnText}>Follow</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    </ScrollView>
-                </View>
-
-                {/* ── Three-Dot Dropdown ── */}
-                {showOptions && (
-                    <OptionsDropdown
-                        visible={showOptions}
-                        onClose={() => setShowOptions(false)}
-                        track={track}
-                        onShare={handleShare}
-                        onToggleLike={toggleLike}
-                        isLiked={isLiked}
-                        topOffset={topBarBottom}
-                    />
-                )}
-
-                {/* ── Queue Bottom Sheet ── */}
-                <Modal
-                    visible={showQueueModal}
-                    animationType="slide"
-                    transparent
-                    onRequestClose={() => setShowQueueModal(false)}
-                >
-                    <View style={queueStyles.overlay}>
-                        <View style={[queueStyles.sheet, { paddingBottom: safeBottom + 16 }]}>
-                            <View style={queueStyles.handle} />
-                            <View style={queueStyles.header}>
-                                <Text style={queueStyles.title}>Queue</Text>
-                                <TouchableOpacity onPress={() => setShowQueueModal(false)}>
-                                    <Text style={queueStyles.closeBtn}>Close</Text>
-                                </TouchableOpacity>
-                            </View>
-                            <ScrollView style={queueStyles.list} showsVerticalScrollIndicator={false}>
-                                <Text style={queueStyles.sectionLabel}>NOW PLAYING</Text>
-                                <View style={queueStyles.activeItem}>
-                                    <Image source={{ uri: track.artwork }} style={queueStyles.art} />
-                                    <View style={queueStyles.itemInfo}>
-                                        <Text style={[queueStyles.itemTitle, { color: COLORS.primary }]} numberOfLines={1}>
-                                            {track.title}
-                                        </Text>
-                                        <Text style={queueStyles.itemArtist} numberOfLines={1}>{track.artist}</Text>
-                                    </View>
-                                    <Text style={{ color: COLORS.primary, fontSize: 15 }}>{'▶'}</Text>
-                                </View>
-
-                                <Text style={[queueStyles.sectionLabel, { marginTop: 18 }]}>NEXT IN QUEUE</Text>
-                                {queue.length > 0 ? (
-                                    queue.map((item, idx) => (
-                                        <View key={`queue-item-${item.id || 'track'}-${idx}`} style={queueStyles.item}>
-                                            <Image source={{ uri: item.artwork }} style={queueStyles.art} />
-                                            <View style={queueStyles.itemInfo}>
-                                                <Text style={queueStyles.itemTitle}  numberOfLines={1}>{item.title}</Text>
-                                                <Text style={queueStyles.itemArtist} numberOfLines={1}>{item.artist}</Text>
-                                            </View>
-                                            <Text style={queueStyles.itemDuration}>{item.duration}</Text>
-                                        </View>
-                                    ))
-                                ) : (
-                                    <Text style={queueStyles.emptyText}>No additional tracks in queue</Text>
-                                )}
-                            </ScrollView>
-                        </View>
-                    </View>
-                </Modal>
-            </Animated.View>
-        </Modal>
-    );
-};
-
-// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#0D0D0D',
-    },
-    // z=0 — blurred art + dark overlay
-    backgroundLayer: {
-        position: 'absolute',
-        top: 0, left: 0, right: 0, bottom: 0,
-        zIndex: 0,
-        overflow: 'hidden',
-    },
-    // z=10 — all UI lives here, padded by safe area
-    contentLayer: {
-        position: 'absolute',
-        top: 0, left: 0, right: 0, bottom: 0,
-        zIndex: 10,
-        flex: 1,
-    },
-    // Small pill at the very top as a drag affordance
-    dragHandle: {
-        width: 36,
-        height: 4,
-        borderRadius: 2,
-        backgroundColor: 'rgba(255,255,255,0.28)',
-        alignSelf: 'center',
-        marginTop: 6,
-        marginBottom: 4,
-    },
-    topBar: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: SPACE.md,
-        paddingVertical: 6,
-    },
-    topIconBtn: {
-        width: 42, height: 42,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    chevronDown: {
-        color: '#FFF',
-        fontSize: 30,
-        fontWeight: '300',
-        marginTop: -4,
-    },
-    headerTitleBox: { flex: 1, alignItems: 'center' },
-    playlistSubtitle: {
-        color: '#A0A0A0',
-        fontSize: 10,
-        fontWeight: '700',
-        letterSpacing: 1.3,
-    },
-    playlistName: {
-        color: '#FFF',
-        fontSize: 13,
-        fontWeight: '700',
-        marginTop: 2,
-    },
-    moreOptions: {
-        color: '#FFF',
-        fontSize: 18,
-        letterSpacing: 1.5,
-        fontWeight: '700',
-    },
-
-    scrollContent: {
-        paddingHorizontal: SPACE.lg,
-    },
-    artworkContainer: {
-        alignItems: 'center',
-        marginTop: SPACE.sm,
-        marginBottom: SPACE.lg,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 16 },
-        shadowOpacity: 0.65,
-        shadowRadius: 24,
-        elevation: 24,
-    },
-    albumArt: {
-        width: SCREEN_WIDTH - 56,
-        height: SCREEN_WIDTH - 56,
-        maxWidth: 340,
-        maxHeight: 340,
-        borderRadius: 8,
-        backgroundColor: '#202020',
-    },
-    metaRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: SPACE.sm,
-    },
-    titleArtistBox: { flex: 1, marginRight: SPACE.md },
-    trackTitle:  { color: '#FFF', fontSize: 22, fontWeight: 'bold', letterSpacing: 0.2 },
-    trackArtist: { color: '#A0A0A0', fontSize: 16, marginTop: 4 },
-    likeBtn:     { padding: 6 },
-    likeIcon:    { fontSize: 26, color: '#A0A0A0' },
-    likeIconActive: { color: COLORS.primary },
-
-    progressContainer: { marginVertical: SPACE.xs },
-    seekTrack: {
-        height: 4,
-        backgroundColor: 'rgba(255,255,255,0.18)',
-        borderRadius: 2,
-        position: 'relative',
-        justifyContent: 'center',
-    },
-    seekFill:  { height: '100%', backgroundColor: '#FFF', borderRadius: 2 },
-    seekThumb: {
-        position: 'absolute',
-        width: 13, height: 13,
-        borderRadius: 7,
-        backgroundColor: '#FFF',
-        top: -4.5,
-    },
-    timeRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
-    timeText: { color: '#808080', fontSize: 11 },
-
-    controlsRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginVertical: SPACE.md,
-        paddingHorizontal: SPACE.xs,
-    },
-    controlBtn: { width: 46, height: 46, justifyContent: 'center', alignItems: 'center' },
-    controlIcon: { fontSize: 22, color: '#A0A0A0' },
-    controlIconActive: { color: COLORS.primary },
-    activeDot: {
-        width: 4, height: 4, borderRadius: 2,
-        backgroundColor: COLORS.primary,
-        marginTop: 2,
-    },
-    skipIcon: { fontSize: 26, color: '#FFF' },
-    playPauseBtn: {
-        width: 68, height: 68, borderRadius: 34,
-        backgroundColor: '#FFF',
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.4,
-        shadowRadius: 8,
-        elevation: 10,
-    },
-    playPauseText: { color: '#000', fontSize: 26, fontWeight: 'bold', marginLeft: 2 },
-
-    bottomBar: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginTop: SPACE.xs,
-        paddingVertical: SPACE.sm,
-        borderTopWidth: 0.5,
-        borderTopColor: 'rgba(255,255,255,0.08)',
-        borderBottomWidth: 0.5,
-        borderBottomColor: 'rgba(255,255,255,0.08)',
-    },
-    deviceBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: 'rgba(29,185,84,0.10)',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 20,
-        borderWidth: 1,
-        borderColor: 'rgba(29,185,84,0.28)',
-        maxWidth: SCREEN_WIDTH * 0.55,
-    },
-    deviceEmoji: { fontSize: 13, marginRight: 6 },
-    deviceText:  { color: COLORS.primary, fontSize: 12, fontWeight: '600' },
-    rightTools:  { flexDirection: 'row', alignItems: 'center' },
-    toolBtn:     { padding: 10, marginLeft: 4, justifyContent: 'center', alignItems: 'center' },
-    toolBtnIcon: { color: '#A0A0A0', fontSize: 22, fontWeight: '600' },
-    queueIconWrap: { justifyContent: 'space-between', height: 16 },
-    queueLine: { height: 2.5, width: 20, backgroundColor: '#A0A0A0', borderRadius: 1.5, marginVertical: 1.5 },
-
-    artistCard: {
-        marginTop: SPACE.xl,
-        backgroundColor: 'rgba(30,30,30,0.8)',
-        borderRadius: 14,
-        overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.07)',
-    },
-    artistCardTitle:  { color: '#FFF', fontSize: 17, fontWeight: 'bold', padding: SPACE.md },
-    artistCardImage:  { width: '100%', height: 170, resizeMode: 'cover' },
-    artistCardBody:   { padding: SPACE.md },
-    artistCardName:   { color: '#FFF', fontSize: 17, fontWeight: 'bold' },
-    artistListeners:  { color: '#A0A0A0', fontSize: 13, marginTop: 2, marginBottom: SPACE.sm },
-    artistBio:        { color: '#C8C8C8', fontSize: 13, lineHeight: 19 },
-    followBtn: {
-        marginTop: SPACE.md,
-        alignSelf: 'flex-start',
-        borderWidth: 1, borderColor: '#FFF',
-        borderRadius: 20,
-        paddingHorizontal: SPACE.lg,
-        paddingVertical: 7,
-    },
-    followBtnText: { color: '#FFF', fontSize: 13, fontWeight: 'bold' },
+  container: {
+    flex: 1,
+    backgroundColor: '#121212',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  headerBtn: {
+    padding: 6,
+  },
+  headerBtnText: {
+    color: '#FFF',
+    fontSize: 22,
+    fontWeight: 'bold',
+  },
+  headerTitleContainer: {
+    alignItems: 'center',
+  },
+  headerSubTitle: {
+    color: '#B3B3B3',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  headerMainTitle: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+  },
+  artworkContainer: {
+    alignItems: 'center',
+    marginVertical: 14,
+  },
+  artwork: {
+    width: width - 72,
+    height: width - 72,
+    borderRadius: 8,
+    backgroundColor: '#282828',
+  },
+  detailsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  detailsTextContainer: {
+    flex: 1,
+    marginRight: 16,
+  },
+  title: {
+    color: '#FFF',
+    fontSize: 22,
+    fontWeight: 'bold',
+  },
+  artist: {
+    color: '#B3B3B3',
+    fontSize: 15,
+    marginTop: 4,
+  },
+  likeBtn: {
+    padding: 6,
+  },
+  progressContainer: {
+    marginTop: 20,
+  },
+  touchableBarArea: {
+    paddingVertical: 8,
+    justifyContent: 'center',
+  },
+  progressBar: {
+    height: 4,
+    backgroundColor: '#404040',
+    borderRadius: 2,
+    position: 'relative',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#FFF',
+    borderRadius: 2,
+  },
+  progressKnob: {
+    position: 'absolute',
+    top: -4,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#FFF',
+    marginLeft: -6,
+  },
+  timeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  timeText: {
+    color: '#B3B3B3',
+    fontSize: 11,
+  },
+  controlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 14,
+  },
+  smallControlBtn: {
+    padding: 8,
+  },
+  smallControlIcon: {
+    fontSize: 20,
+    color: '#B3B3B3',
+  },
+  activeGreen: {
+    color: '#1DB954',
+  },
+  mainControlBtn: {
+    padding: 8,
+  },
+  mainControlIcon: {
+    color: '#FFF',
+    fontSize: 28,
+  },
+  playPauseBtn: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#FFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  playPauseIcon: {
+    color: '#000',
+    fontSize: 22,
+  },
+  bottomUtilityRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginVertical: 16,
+  },
+  utilityBtn: {
+    padding: 6,
+  },
+  utilityIcon: {
+    color: '#B3B3B3',
+    fontSize: 18,
+  },
+  cardContainer: {
+    backgroundColor: '#242424',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  cardTitle: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  expandCardBtn: {
+    backgroundColor: '#333',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  expandCardText: {
+    color: '#FFF',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  lyricsWrapper: {
+    marginTop: 4,
+  },
+  lyricsText: {
+    color: '#E0E0E0',
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: '500',
+  },
+  lyricsLineText: {
+    color: '#E0E0E0',
+    fontSize: 16,
+    lineHeight: 26,
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  artistCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 12,
+  },
+  artistCardAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#333',
+  },
+  artistCardInfo: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  artistCardName: {
+    color: '#FFF',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  artistCardListeners: {
+    color: '#B3B3B3',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  artistCardBio: {
+    color: '#B3B3B3',
+    fontSize: 13,
+    lineHeight: 18,
+  },
 });
-
-const queueStyles = StyleSheet.create({
-    overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-    sheet: {
-        backgroundColor: '#1A1A1A',
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
-        maxHeight: SCREEN_HEIGHT * 0.72,
-        padding: SPACE.md,
-    },
-    handle: {
-        width: 36, height: 4, borderRadius: 2,
-        backgroundColor: 'rgba(255,255,255,0.2)',
-        alignSelf: 'center',
-        marginBottom: SPACE.sm,
-    },
-    header: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingBottom: SPACE.sm,
-        borderBottomWidth: 0.5,
-        borderBottomColor: '#2C2C2C',
-        marginBottom: SPACE.sm,
-    },
-    title:    { color: '#FFF', fontSize: 18, fontWeight: 'bold' },
-    closeBtn: { color: COLORS.primary, fontSize: 15, fontWeight: '600' },
-    list:     { flex: 1 },
-    sectionLabel: { color: '#808080', fontSize: 11, fontWeight: '700', letterSpacing: 1.1, marginBottom: 8 },
-    activeItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#282828',
-        padding: SPACE.sm,
-        borderRadius: 8,
-    },
-    item: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: SPACE.sm,
-        borderBottomWidth: 0.5,
-        borderBottomColor: '#252525',
-    },
-    art:          { width: 46, height: 46, borderRadius: 5 },
-    itemInfo:     { flex: 1, marginLeft: SPACE.sm },
-    itemTitle:    { color: '#FFF', fontSize: 14, fontWeight: '600' },
-    itemArtist:   { color: '#A0A0A0', fontSize: 12, marginTop: 2 },
-    itemDuration: { color: '#808080', fontSize: 12 },
-    emptyText:    { color: '#606060', fontSize: 13, textAlign: 'center', paddingVertical: SPACE.lg },
-});
-
-export default FullScreenPlayerModal;

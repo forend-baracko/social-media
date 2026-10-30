@@ -1,307 +1,353 @@
-let SoundModule = null;
-try {
-    const imported = require('react-native-sound');
-    SoundModule = imported.default || imported;
-    if (SoundModule && typeof SoundModule.setCategory === 'function') {
-        SoundModule.setCategory('Playback', true);
-    }
-} catch (e) {
-    console.warn('react-native-sound module not available:', e);
-}
+import Sound from 'react-native-sound';
 
-class AudioPlaybackService {
-    constructor() {
-        this.sound = null;
-        this.currentTrack = null;
-        this.currentTrackId = null;
-        this.isPlaying = false;
-        this.currentTime = 0;
-        this.duration = 230;
-        this.listeners = new Set();
-        this.progressInterval = null;
-        this.loadRequestId = 0;
-        this.onEndCallback = null;
-    }
+Sound.setCategory('Playback');
 
-    addListener(callback) {
-        this.listeners.add(callback);
-        // Immediately notify new subscriber with current state
-        if (this.currentTrack) {
-            try {
-                callback('status', {
-                    isPlaying: this.isPlaying,
-                    track: this.currentTrack,
-                    currentTime: this.currentTime,
-                    duration: this.duration,
-                });
-            } catch (err) {}
-        }
-        return () => this.listeners.delete(callback);
-    }
+export const REPEAT_MODE = {
+  OFF: 'OFF',
+  ALL: 'ALL',
+  ONE: 'ONE',
+};
 
-    notify(event, data) {
-        this.listeners.forEach((callback) => {
-            try {
-                callback(event, data);
-            } catch (err) {
-                console.warn('Playback listener error:', err);
-            }
+class AudioPlayerService {
+  constructor() {
+    this.soundObj = null;
+    this.currentTrack = null;
+    this.isPlaying = false;
+    this.queue = [];
+    this.currentIndex = 0;
+    this.currentTime = 0;
+    this.duration = 230;
+    this.isShuffle = false;
+    this.repeatMode = REPEAT_MODE.OFF;
+    this.listeners = new Set();
+    this.progressTimer = null;
+    this.isTransitioning = false;
+  }
+
+  // --- Listener System ---
+  addListener(callback) {
+    if (typeof callback === 'function') {
+      this.listeners.add(callback);
+    }
+    return () => {
+      this.listeners.delete(callback);
+    };
+  }
+
+  emit(event, data = {}) {
+    this.listeners.forEach((callback) => {
+      try {
+        callback(event, {
+          event,
+          track: this.currentTrack,
+          isPlaying: this.isPlaying,
+          isShuffle: this.isShuffle,
+          repeatMode: this.repeatMode,
+          currentTime: this.currentTime,
+          duration: this.duration,
+          ...data,
         });
+      } catch (err) {
+        console.warn('AudioPlayer listener error:', err);
+      }
+    });
+  }
+
+  // --- Queue State & Helpers ---
+  setQueue(tracks = [], startIndex = 0) {
+    this.queue = Array.isArray(tracks) ? tracks : [];
+    this.currentIndex = Math.max(0, Math.min(startIndex, this.queue.length - 1));
+    this.emit('queue', { queue: this.queue });
+  }
+
+  getQueue() {
+    return this.queue || [];
+  }
+
+  getCurrentIndex() {
+    return this.currentIndex || 0;
+  }
+
+  getCurrentTrack() {
+    return this.currentTrack;
+  }
+
+  getIsPlaying() {
+    return this.isPlaying;
+  }
+
+  async jumpToQueueIndex(index) {
+    if (!this.queue || index < 0 || index >= this.queue.length) return;
+    this.currentIndex = index;
+    const targetTrack = this.queue[index];
+    if (targetTrack) {
+      await this.playTrack(targetTrack);
+    }
+  }
+
+  removeFromQueue(index) {
+    if (!this.queue || index < 0 || index >= this.queue.length) return;
+    if (index === this.currentIndex) return;
+
+    this.queue.splice(index, 1);
+    if (index < this.currentIndex) {
+      this.currentIndex -= 1;
+    }
+    this.emit('queue', { queue: this.queue });
+  }
+
+  clearQueue() {
+    if (!this.queue || this.queue.length === 0) return;
+    const current = this.currentTrack;
+    this.queue = current ? [current] : [];
+    this.currentIndex = 0;
+    this.emit('queue', { queue: this.queue });
+  }
+
+  // --- Guaranteed Native Sound Cleanup ---
+  hardStopPreviousSound() {
+    if (this.progressTimer) {
+      clearInterval(this.progressTimer);
+      this.progressTimer = null;
     }
 
-    getCurrentTrack() {
-        return this.currentTrack;
-    }
-
-    getIsPlaying() {
-        return this.isPlaying;
-    }
-
-    startProgressTimer() {
-        this.stopProgressTimer();
-        this.progressInterval = setInterval(() => {
-            if (this.sound && this.isPlaying && typeof this.sound.getCurrentTime === 'function') {
-                this.sound.getCurrentTime((seconds) => {
-                    const secs = Math.floor(seconds);
-                    this.currentTime = secs;
-                    const dur = Math.floor(this.sound.getDuration() || this.duration);
-                    if (dur > 0) this.duration = dur;
-                    this.notify('progress', {
-                        currentTime: secs,
-                        duration: this.duration,
-                    });
-                });
-            } else if (this.isPlaying) {
-                // Fallback simulation timer if sound is simulated
-                this.currentTime += 1;
-                if (this.currentTime >= this.duration) {
-                    this.currentTime = 0;
-                    if (this.onEndCallback) this.onEndCallback();
-                }
-                this.notify('progress', {
-                    currentTime: this.currentTime,
-                    duration: this.duration,
-                });
-            }
-        }, 1000);
-    }
-
-    stopProgressTimer() {
-        if (this.progressInterval) {
-            clearInterval(this.progressInterval);
-            this.progressInterval = null;
-        }
-    }
-
-    /**
-     * Play a track safely without overlapping audio instances
-     */
-    async playTrack(track, onEndCallback) {
-        if (!track) return;
-
-        // If this exact track is already playing, do not recreate!
-        if (this.sound && this.currentTrackId === track.id && this.isPlaying) {
-            return;
-        }
-
-        // If this exact track is loaded but paused, simply resume
-        if (this.sound && this.currentTrackId === track.id && !this.isPlaying) {
-            this.resume();
-            return;
-        }
-
-        // Increment request ID to cancel any pending async sound loads
-        const currentRequestId = ++this.loadRequestId;
-
-        // Clean up previous sound instance immediately
-        this.stopProgressTimer();
-        if (this.sound) {
-            try {
-                this.sound.stop();
-                this.sound.release();
-            } catch (e) {}
-            this.sound = null;
-        }
-
-        this.currentTrack = track;
-        this.currentTrackId = track.id;
-        this.isPlaying = true;
-        this.currentTime = 0;
-        this.onEndCallback = onEndCallback;
-
-        // Parse duration string like "4:17"
-        let parsedDuration = 0;
-        if (track.duration) {
-            const parts = track.duration.split(':');
-            if (parts.length === 2) {
-                const mins = parseInt(parts[0], 10);
-                const secs = parseInt(parts[1], 10);
-                if (!isNaN(mins) && !isNaN(secs)) {
-                    parsedDuration = mins * 60 + secs;
-                }
-            }
-        }
-        this.duration = parsedDuration > 0 ? parsedDuration : 230;
-
-        // Notify UI immediately that new track is selected and playing
-        this.notify('status', {
-            isPlaying: true,
-            track: this.currentTrack,
-            currentTime: 0,
-            duration: this.duration,
+    if (this.soundObj) {
+      const activeSound = this.soundObj;
+      this.soundObj = null;
+      try {
+        activeSound.stop(() => {
+          try {
+            activeSound.release();
+          } catch (e) {}
         });
-
-        // Determine sound file and base path
-        const audioSource = track.audioUrl || track.audioFile || '';
-        let soundFilename = audioSource;
-        let soundBasePath = '';
-
-        if (typeof audioSource === 'string' && (audioSource.startsWith('http://') || audioSource.startsWith('https://'))) {
-            soundFilename = audioSource;
-            soundBasePath = '';
-        } else if (
-            track.id === 'track-1' ||
-            (typeof audioSource === 'string' && audioSource.toLowerCase().includes('fallin'))
-        ) {
-            soundFilename = 'fallin.mp3';
-            soundBasePath = SoundModule?.MAIN_BUNDLE ?? '';
-        } else {
-            soundFilename = 'fallin.mp3';
-            soundBasePath = SoundModule?.MAIN_BUNDLE ?? '';
-        }
-
-        // Fallback simulation if SoundModule is not loaded
-        if (typeof SoundModule !== 'function') {
-            console.warn('Native SoundModule not available, simulating playback.');
-            this.startProgressTimer();
-            return;
-        }
-
+      } catch (e) {
         try {
-            const soundInstance = new SoundModule(soundFilename, soundBasePath, (error) => {
-                // If a newer load request arrived while this was loading, discard this instance
-                if (currentRequestId !== this.loadRequestId) {
-                    try { soundInstance.release(); } catch (e) {}
-                    return;
-                }
+          activeSound.release();
+        } catch (err) {}
+      }
+    }
+  }
 
-                if (error) {
-                    console.warn(`Failed to load audio for "${track.title}":`, error);
-                    // Start simulated progress so user interface still reacts
-                    this.startProgressTimer();
-                    return;
-                }
+  // --- Core Playback ---
+  async playTrack(track) {
+    if (!track) return;
 
-                this.sound = soundInstance;
-                const actualDuration = Math.floor(soundInstance.getDuration() || 0);
-                if (actualDuration > 0) {
-                    this.duration = actualDuration;
-                }
+    this.hardStopPreviousSound();
 
-                soundInstance.setVolume(1.0);
+    this.isTransitioning = false;
+    this.currentTrack = track;
+    this.currentTime = 0;
+    this.isPlaying = true;
 
-                soundInstance.play((success) => {
-                    if (currentRequestId !== this.loadRequestId) return;
-
-                    this.isPlaying = false;
-                    this.stopProgressTimer();
-                    this.notify('status', { isPlaying: false, track: this.currentTrack });
-
-                    // Only auto-advance if it successfully finished playing the song
-                    if (success && this.onEndCallback) {
-                        this.onEndCallback();
-                    }
-                });
-
-                this.isPlaying = true;
-                this.startProgressTimer();
-                this.notify('status', {
-                    isPlaying: true,
-                    track: this.currentTrack,
-                    duration: this.duration,
-                });
-            });
-        } catch (err) {
-            console.warn('Error instantiating Sound:', err);
-            this.startProgressTimer();
-        }
+    if (track.duration) {
+      if (typeof track.duration === 'string' && track.duration.includes(':')) {
+        const parts = track.duration.split(':');
+        this.duration = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10) || 230;
+      } else if (typeof track.duration === 'number') {
+        this.duration = track.duration;
+      }
     }
 
-    pause() {
-        if (this.sound && this.isPlaying) {
-            try {
-                this.sound.pause();
-            } catch (e) {}
-        }
+    const foundIdx = this.queue.findIndex((t) => t.id === track.id);
+    if (foundIdx !== -1) {
+      this.currentIndex = foundIdx;
+    }
+
+    this.emit('status');
+
+    let audioUri = track.stream_url || track.url || track.audioUrl;
+    const isValidMp3 =
+      audioUri &&
+      typeof audioUri === 'string' &&
+      (audioUri.endsWith('.mp3') || audioUri.includes('.mp3?'));
+
+    if (!isValidMp3) {
+      audioUri = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
+    }
+
+    const targetTrackId = track.id;
+
+    const sound = new Sound(audioUri, null, (error) => {
+      if (this.currentTrack?.id !== targetTrackId) {
+        try {
+          sound.stop();
+          sound.release();
+        } catch (e) {}
+        return;
+      }
+
+      if (error) {
+        console.warn('Failed to load sound:', error);
         this.isPlaying = false;
-        this.stopProgressTimer();
-        this.notify('status', { isPlaying: false, track: this.currentTrack });
-    }
+        this.emit('status');
+        return;
+      }
 
-    resume() {
-        if (!this.sound && this.currentTrack) {
-            this.playTrack(this.currentTrack, this.onEndCallback);
-            return;
-        }
+      const realDuration = Math.floor(sound.getDuration());
+      if (realDuration && realDuration > 0) {
+        this.duration = realDuration;
+      }
 
-        if (this.sound && !this.isPlaying) {
-            const currentReqId = this.loadRequestId;
-            try {
-                this.sound.play((success) => {
-                    if (currentReqId !== this.loadRequestId) return;
-                    this.isPlaying = false;
-                    this.stopProgressTimer();
-                    this.notify('status', { isPlaying: false, track: this.currentTrack });
-                    if (success && this.onEndCallback) {
-                        this.onEndCallback();
-                    }
-                });
-            } catch (e) {}
-        }
-        this.isPlaying = true;
-        this.startProgressTimer();
-        this.notify('status', { isPlaying: true, track: this.currentTrack });
-    }
+      this.soundObj = sound;
+      this.isPlaying = true;
 
-    togglePlay(track) {
-        if (this.isPlaying) {
-            this.pause();
+      sound.play((success) => {
+        if (success) {
+          this._handleTrackCompletion();
         } else {
-            if (this.sound) {
-                this.resume();
-            } else if (track || this.currentTrack) {
-                this.playTrack(track || this.currentTrack, this.onEndCallback);
-            }
+          console.warn('Playback error or interrupted');
         }
-    }
+      });
 
-    seekTo(seconds) {
-        this.currentTime = seconds;
-        if (this.sound && typeof this.sound.setCurrentTime === 'function') {
-            try {
-                this.sound.setCurrentTime(seconds);
-            } catch (e) {}
-        }
-        this.notify('progress', {
+      this._startProgressTimer();
+      this.emit('status');
+    });
+  }
+
+  _handleTrackCompletion() {
+    if (this.isTransitioning) return;
+    this.isTransitioning = true;
+
+    this.hardStopPreviousSound();
+
+    if (this.repeatMode === REPEAT_MODE.ONE) {
+      this.playTrack(this.currentTrack);
+    } else {
+      this.playNext();
+    }
+  }
+
+  _startProgressTimer() {
+    if (this.progressTimer) clearInterval(this.progressTimer);
+
+    this.progressTimer = setInterval(() => {
+      if (this.soundObj && this.isPlaying) {
+        this.soundObj.getCurrentTime((seconds) => {
+          this.currentTime = Math.floor(seconds);
+          this.emit('progress', {
             currentTime: this.currentTime,
             duration: this.duration,
+          });
         });
+      }
+    }, 1000);
+  }
+
+  // --- Controls ---
+  async togglePlay(track = null) {
+    if (track && this.currentTrack?.id !== track.id) {
+      await this.playTrack(track);
+      return;
     }
 
-    stop() {
-        this.loadRequestId++;
-        if (this.sound) {
-            try {
-                this.sound.stop();
-                this.sound.release();
-            } catch (e) {}
-            this.sound = null;
-        }
-        this.isPlaying = false;
-        this.stopProgressTimer();
-        this.notify('status', { isPlaying: false, track: this.currentTrack });
+    if (!this.soundObj) {
+      if (track || this.currentTrack) {
+        await this.playTrack(track || this.currentTrack);
+      }
+      return;
     }
+
+    if (this.isPlaying) {
+      this.soundObj.pause();
+      this.isPlaying = false;
+    } else {
+      this.soundObj.play((success) => {
+        if (success) {
+          this._handleTrackCompletion();
+        }
+      });
+      this.isPlaying = true;
+    }
+    this.emit('status');
+  }
+
+  async stop() {
+    this.hardStopPreviousSound();
+    this.isPlaying = false;
+    this.currentTime = 0;
+    this.emit('status');
+  }
+
+  async playPrevious() {
+    if (!this.queue || this.queue.length === 0) return;
+
+    if (this.currentTime > 3) {
+      this.seekTo(0);
+      return;
+    }
+
+    let prevIndex = this.currentIndex - 1;
+    if (prevIndex < 0) {
+      prevIndex = this.queue.length - 1;
+    }
+
+    this.currentIndex = prevIndex;
+    const prevTrack = this.queue[prevIndex];
+    if (prevTrack) {
+      await this.playTrack(prevTrack);
+    }
+  }
+
+  async playNext() {
+    if (!this.queue || this.queue.length === 0) return;
+
+    let nextIndex = this.currentIndex + 1;
+
+    if (this.isShuffle && this.queue.length > 1) {
+      let randomIndex = this.currentIndex;
+      while (randomIndex === this.currentIndex) {
+        randomIndex = Math.floor(Math.random() * this.queue.length);
+      }
+      nextIndex = randomIndex;
+    } else if (nextIndex >= this.queue.length) {
+      if (this.repeatMode === REPEAT_MODE.ALL) {
+        nextIndex = 0;
+      } else {
+        this.hardStopPreviousSound();
+        this.isPlaying = false;
+        this.currentTime = 0;
+        this.emit('status');
+        return;
+      }
+    }
+
+    this.currentIndex = nextIndex;
+    const nextTrack = this.queue[nextIndex];
+    if (nextTrack) {
+      await this.playTrack(nextTrack);
+    }
+  }
+
+  async seekTo(seconds) {
+    this.currentTime = Math.max(0, Math.min(seconds, this.duration));
+    if (this.soundObj) {
+      try {
+        this.soundObj.setCurrentTime(this.currentTime);
+      } catch (e) {
+        console.warn('Seek error:', e);
+      }
+    }
+    this.emit('progress', { currentTime: this.currentTime, duration: this.duration });
+  }
+
+  toggleShuffle() {
+    this.isShuffle = !this.isShuffle;
+    this.emit('mode', { isShuffle: this.isShuffle });
+    return this.isShuffle;
+  }
+
+  toggleRepeat() {
+    if (this.repeatMode === REPEAT_MODE.OFF) {
+      this.repeatMode = REPEAT_MODE.ALL;
+    } else if (this.repeatMode === REPEAT_MODE.ALL) {
+      this.repeatMode = REPEAT_MODE.ONE;
+    } else {
+      this.repeatMode = REPEAT_MODE.OFF;
+    }
+    this.emit('mode', { repeatMode: this.repeatMode });
+    return this.repeatMode;
+  }
 }
 
-export const audioPlayer = new AudioPlaybackService();
+const audioPlayer = new AudioPlayerService();
 export default audioPlayer;

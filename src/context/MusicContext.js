@@ -283,14 +283,21 @@ export const MusicProvider = ({ children }) => {
         });
     }, []);
 
-    // Also listen to audioPlayer status to record recents automatically
+    // Safe listener subscription for audioPlayer
     useEffect(() => {
+        if (typeof audioPlayer?.addListener !== 'function') return;
+
         const unsubscribe = audioPlayer.addListener((event, data) => {
             if (event === 'status' && data?.track && data?.isPlaying) {
                 recordTrackPlayed(data.track);
             }
         });
-        return () => unsubscribe();
+
+        return () => {
+            if (typeof unsubscribe === 'function') {
+                unsubscribe();
+            }
+        };
     }, [recordTrackPlayed]);
 
     const value = {
