@@ -6,6 +6,7 @@ import {
     FIREBASE_MESSAGING_SENDER_ID,
     FIREBASE_APP_ID,
     AUDIOMACK_API_KEY,
+    AUDIO_API_BASE_URL,
     GOOGLE_WEB_CLIENT_ID,
 } from '@env';
 
@@ -31,6 +32,10 @@ export const AUDIOMACK_CONFIG = {
     baseUrl: 'https://api.audiomack.com/v1',
     apiKey: AUDIOMACK_API_KEY || '',
     useMockData: !AUDIOMACK_API_KEY || AUDIOMACK_API_KEY === 'undefined',
+};
+
+export const AUDIO_CONFIG = {
+    apiBaseUrl: (AUDIO_API_BASE_URL || '').replace(/\/+$/, ''),
 };
 
 /**
