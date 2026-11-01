@@ -1,6 +1,7 @@
 const express = require('express');
 const { createAudiusAudioRouter } = require('./routes/audio');
 const { createMusicApiRouter } = require('./routes/musicapi');
+const { createGeminiRouter } = require('./routes/gemini');
 
 const app = express();
 
@@ -19,6 +20,7 @@ app.get('/health', (req, res) => {
 });
 app.use('/api/audio', createAudiusAudioRouter());
 app.use('/api/musicapi', express.json({ limit: '20kb' }), createMusicApiRouter());
+app.use('/api/gemini', express.json({ limit: '64kb' }), createGeminiRouter());
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`Audio proxy listening on port ${port}`);

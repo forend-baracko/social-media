@@ -21,6 +21,7 @@ import { MOCK_TRACKS } from '../services/audiomackService';
 import { searchAudiusTracks } from '../services/audiusService';
 import { getArtworkSource } from '../utils/artworkHelper';
 import BottomNavBar, { TABS } from '../components/navigation/BottomNavBar';
+import GeminiDJ from '../components/search/GeminiDJ';
 import { CreateView, LibraryView } from '../components/playlists/LibraryAndCreateViews';
 import PlaylistDetailModal from '../components/playlists/PlaylistDetailModal';
 import AddToPlaylistModal from '../components/playlists/AddToPlaylistModal';
@@ -250,6 +251,16 @@ const HomeScreen = ({ navigation }) => {
     }
   };
 
+  const handleStartDJSet = (tracks) => {
+    if (!tracks.length) return;
+    setActiveTab(TABS.HOME);
+    setHomeFilter('Music');
+    setIsPlayerModalOpen(true);
+    Keyboard.dismiss();
+    audioPlayer.setQueue(tracks, 0);
+    audioPlayer.playTrack(tracks[0]);
+  };
+
   const handleOpenAddToPlaylist = (track) => {
     setTrackToAdd(track);
     setIsAddToPlaylistOpen(true);
@@ -422,6 +433,10 @@ const HomeScreen = ({ navigation }) => {
                 </TouchableOpacity>
               ) : null}
             </View>
+
+            {!searchQuery.trim() && !searchCategory && (
+              <GeminiDJ tracks={musicCatalog} onStartSet={handleStartDJSet} />
+            )}
 
             {searchCategory === 'made-for-you' && !searchQuery.trim() ? (
               <View>

@@ -15,6 +15,20 @@ The app can stream Audius audio through the optional Express proxy:
 
 The proxy validates Audius track IDs, forwards byte-range requests for seeking, streams only audio responses, and reports upstream/network errors as gateway errors.
 
+## Gemini AI DJ
+
+The Search screen can create a Gemini-powered DJ set from the app's available tracks. Configure `GEMINI_API_KEY` and `FIREBASE_API_KEY` in the backend `.env`; keep the Gemini key server-side. Set the app's `AUDIO_API_BASE_URL` to the reachable backend address and run `npm run server`. The Search screen checks backend readiness and shows setup guidance instead of submitting a request when Gemini is unavailable.
+
+Enter a mood or style. Gemini selects one matching track from the available catalog; when you start it, that track plays first and the remaining tracks are shuffled into the queue locally.
+
+The backend asks Google's Models API which Flash models the configured key can use, then chooses one that supports `generateContent`. `GEMINI_MODEL` is optional and is only used when Google lists it for that key. If a model returns 404, 429, or 503, the backend tries other listed Flash models. If all listed models return 429, the Google project quota is exhausted; wait for its reset or review [AI Studio rate limits](https://aistudio.google.com/rate-limit?timeRange=last-28-days) and billing. The app provides a direct quota link and retry action. Code cannot raise a Google project quota. If no models are listed, check that the Gemini API is enabled for the key's Google project and that the key's API restrictions allow the Generative Language API. Keep `GEMINI_API_KEY` in the backend `.env` only, and restart `npm run server` after changing it.
+
+## Google sign-in
+
+Enable **Google** under Firebase Console → Authentication → Sign-in method. The Android app's `google-services.json` should include OAuth clients for the `spotibisaya.powertrio` package, and the Android debug/release SHA-1 fingerprints must be registered in Firebase / Google Cloud. Download the updated Android config after adding fingerprints. The app uses the Web OAuth client ID for Firebase credential exchange; override it with `GOOGLE_WEB_CLIENT_ID` in the app `.env` if needed.
+
+For iOS, create an iOS OAuth client for the app's bundle ID, set `GOOGLE_IOS_CLIENT_ID` in the app `.env`, and add its reversed client ID as a URL scheme in `ios/TempProjectName/Info.plist`. The Google Sign-In button now handles cancellation and reports common Firebase/OAuth setup errors.
+
 ## MusicAPI library connection
 
 MusicAPI can connect a user's existing music service and display that account's playlists and track metadata in **Your Library**. It does not provide full audio streams, so this feature does not make source-service tracks playable in Spotibai.
