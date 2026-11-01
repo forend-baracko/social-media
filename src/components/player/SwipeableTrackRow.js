@@ -10,6 +10,7 @@ import {
     Dimensions,
 } from 'react-native';
 import { COLORS, SPACE, RADIUS } from '../../constants/theme';
+import { getArtworkSource } from '../../utils/artworkHelper';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -174,7 +175,7 @@ const SwipeableTrackRow = ({
                 >
                     {/* Artwork */}
                     <View style={styles.artworkContainer}>
-                        <Image source={{ uri: track.artwork }} style={styles.artwork} />
+                        <Image source={getArtworkSource(track.artwork)} style={styles.artwork} />
                         {isSelected && (
                             <View style={styles.playingIndicator}>
                                 <Text style={styles.playingNote}>♪</Text>

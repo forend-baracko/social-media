@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import audioPlayer from '../../services/audioPlayer';
+import { getArtworkSource } from '../../utils/artworkHelper';
 
 export default function QueueModal({ visible, onClose }) {
   const [queue, setQueue] = useState([]);
@@ -43,22 +44,21 @@ export default function QueueModal({ visible, onClose }) {
     audioPlayer.clearQueue();
   };
 
-  const renderTrackItem = ({ item, index }) => {
-    const isNowPlaying = index === currentIndex;
+  const renderTrackItem = (item, queueIndex) => {
+    const isNowPlaying = queueIndex === currentIndex;
 
     return (
       <View style={[styles.trackRow, isNowPlaying && styles.activeRow]}>
         <TouchableOpacity
           style={styles.trackInfoContainer}
-          onPress={() => handleSelectTrack(index)}
+          onPress={() => handleSelectTrack(queueIndex)}
           activeOpacity={0.7}
         >
           <Image
-            source={{
-              uri:
-                item.artwork ||
-                'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&q=80',
-            }}
+            source={getArtworkSource(
+              item.artwork ||
+                'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&q=80'
+            )}
             style={styles.artwork}
           />
           <View style={styles.textContainer}>
@@ -76,7 +76,7 @@ export default function QueueModal({ visible, onClose }) {
 
         {!isNowPlaying && (
           <TouchableOpacity
-            onPress={() => handleRemoveTrack(index)}
+            onPress={() => handleRemoveTrack(queueIndex)}
             style={styles.removeBtn}
           >
             <Text style={styles.removeIcon}>✕</Text>
@@ -87,6 +87,9 @@ export default function QueueModal({ visible, onClose }) {
   };
 
   const nowPlayingItem = queue[currentIndex];
+  const upcomingQueue = queue
+    .map((item, queueIndex) => ({ item, queueIndex }))
+    .filter(({ queueIndex }) => queueIndex !== currentIndex);
 
   return (
     <Modal
@@ -107,7 +110,7 @@ export default function QueueModal({ visible, onClose }) {
               <Text style={styles.clearText}>Clear</Text>
             </TouchableOpacity>
           ) : (
-            <View style={{ width: 50 }} />
+            <View style={styles.headerSpacer} />
           )}
         </View>
 
@@ -115,17 +118,19 @@ export default function QueueModal({ visible, onClose }) {
         {nowPlayingItem && (
           <View style={styles.sectionContainer}>
             <Text style={styles.sectionHeader}>Now Playing</Text>
-            {renderTrackItem({ item: nowPlayingItem, index: currentIndex })}
+            {renderTrackItem(nowPlayingItem, currentIndex)}
           </View>
         )}
 
         {/* Next Up Section */}
-        <View style={[styles.sectionContainer, { flex: 1 }]}>
+        <View style={[styles.sectionContainer, styles.nextUpSection]}>
           <Text style={styles.sectionHeader}>Next Up</Text>
           <FlatList
-            data={queue}
-            keyExtractor={(item, index) => `${item.id}-${index}`}
-            renderItem={({ item, index }) => renderTrackItem({ item, index })}
+            data={upcomingQueue}
+            keyExtractor={({ item, queueIndex }) => `${item.id}-${queueIndex}`}
+            renderItem={({ item: queuedTrack }) =>
+              renderTrackItem(queuedTrack.item, queuedTrack.queueIndex)
+            }
             contentContainerStyle={styles.listContent}
             showsVerticalScrollIndicator={false}
             ListEmptyComponent={
@@ -165,6 +170,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  headerSpacer: {
+    width: 50,
+  },
   clearBtn: {
     padding: 6,
   },
@@ -176,6 +184,9 @@ const styles = StyleSheet.create({
   sectionContainer: {
     paddingHorizontal: 16,
     paddingTop: 16,
+  },
+  nextUpSection: {
+    flex: 1,
   },
   sectionHeader: {
     color: '#B3B3B3',

@@ -20,15 +20,19 @@ let db = null;
 
 if (isFirebaseConfigured()) {
     try {
-        if (getApps().length === 0) {
-            app = initializeApp(FIREBASE_CONFIG);
+        app = getApps().length === 0 ? initializeApp(FIREBASE_CONFIG) : getApp();
+
+        try {
             auth = initializeAuth(app, {
                 persistence: getReactNativePersistence(AsyncStorage),
             });
-        } else {
-            app = getApp();
+        } catch (error) {
+            if (error.code !== 'auth/already-initialized') {
+                throw error;
+            }
             auth = getAuth(app);
         }
+
         db = getFirestore(app);
     } catch (error) {
         console.warn('Firebase initialization error:', error);

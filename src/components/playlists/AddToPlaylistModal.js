@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, SPACE, RADIUS } from '../../constants/theme';
+import { getArtworkSource } from '../../utils/artworkHelper';
 import CreatePlaylistModal from './CreatePlaylistModal';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -66,7 +67,7 @@ const AddToPlaylistModal = ({
 
                     {/* Track Preview */}
                     <View style={styles.trackCard}>
-                        <Image source={{ uri: track.artwork }} style={styles.artwork} />
+                        <Image source={getArtworkSource(track.artwork)} style={styles.artwork} />
                         <View style={styles.trackInfo}>
                             <Text style={styles.trackTitle} numberOfLines={1}>
                                 {track.title}

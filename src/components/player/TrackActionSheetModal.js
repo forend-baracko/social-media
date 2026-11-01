@@ -10,10 +10,10 @@ import {
     Animated,
     Dimensions,
     Share,
-    Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, SPACE, RADIUS } from '../../constants/theme';
+import { COLORS, SPACE } from '../../constants/theme';
+import { getArtworkSource } from '../../utils/artworkHelper';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -24,6 +24,7 @@ const TrackActionSheetModal = ({
     onAddToPlaylist,
     onRemoveFromPlaylist,
     onAddToQueue,
+    onGoToQueue,
     onToggleLike,
     isLiked = false,
     isInPlaylist = false,
@@ -97,6 +98,15 @@ const TrackActionSheetModal = ({
             },
         },
         {
+            id: 'go_to_queue',
+            icon: '≡',
+            title: 'Go to queue',
+            onPress: () => {
+                onClose();
+                if (onGoToQueue) onGoToQueue();
+            },
+        },
+        {
             id: 'add_playlist',
             icon: '➕',
             title: 'Add to playlist',
@@ -105,7 +115,6 @@ const TrackActionSheetModal = ({
                 if (onAddToPlaylist) onAddToPlaylist(track);
             },
         },
-        // Show Remove from playlist only if in playlist
         ...(isInPlaylist || onRemoveFromPlaylist
             ? [
                   {
@@ -125,24 +134,6 @@ const TrackActionSheetModal = ({
             icon: '↗',
             title: 'Share song',
             onPress: handleShare,
-        },
-        {
-            id: 'artist',
-            icon: '👤',
-            title: `Go to ${track.artist}`,
-            onPress: () => {
-                onClose();
-                Alert.alert(track.artist, `Viewing ${track.artist}'s top tracks and releases.`);
-            },
-        },
-        {
-            id: 'album',
-            icon: '💿',
-            title: `View album "${track.album || track.title}"`,
-            onPress: () => {
-                onClose();
-                Alert.alert('Album', `Viewing ${track.album || track.title} album tracklist.`);
-            },
         },
     ];
 
@@ -174,7 +165,7 @@ const TrackActionSheetModal = ({
 
                     {/* Track info header */}
                     <View style={styles.trackHeader}>
-                        <Image source={{ uri: track.artwork }} style={styles.trackArtwork} />
+                        <Image source={getArtworkSource(track.artwork)} style={styles.trackArtwork} />
                         <View style={styles.trackMeta}>
                             <Text style={styles.trackTitle} numberOfLines={1}>
                                 {track.title}

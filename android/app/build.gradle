@@ -71,6 +71,7 @@ def enableProguardInReleaseBuilds = false
  * this variant is about 6MiB larger per architecture than default.
  */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
+def localTrackAudioResources = file("$buildDir/generated/res/local-track-audio")
 
 android {
     ndkVersion rootProject.ext.ndkVersion
@@ -85,6 +86,7 @@ android {
         versionCode 1
         versionName "1.0"
     }
+    sourceSets.main.res.srcDir(localTrackAudioResources)
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
@@ -107,12 +109,31 @@ android {
     }
 }
 
+tasks.register("copyLocalTrackAudio", Copy) {
+    from("../../src/assets/tracks") {
+        include("*.mp3")
+        rename { fileName ->
+            fileName
+                .replaceFirst(/(?i)\.mp3$/, "")
+                .toLowerCase(Locale.ROOT)
+                .replaceAll(/[^a-z0-9]+/, "_")
+                .replaceAll(/^_|_$/, "")
+        }
+    }
+    into(new File(localTrackAudioResources, "raw"))
+}
+
+tasks.named("preBuild").configure {
+    dependsOn("copyLocalTrackAudio")
+}
+
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
     
     // ADD THIS LINE HERE:
     implementation project(':react-native-sound')
+    implementation("androidx.browser:browser:1.8.0")
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")

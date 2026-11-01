@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { COLORS, SPACE } from '../../constants/theme';
 import audioPlayer from '../../services/audioPlayer';
+import { getArtworkSource } from '../../utils/artworkHelper';
 
 export const TABS = {
   HOME: 'Home',
@@ -10,37 +11,28 @@ export const TABS = {
   CREATE: 'Create',
 };
 
-const BottomNavBar = ({ activeTab, onSelectTab, onOpenPlayer }) => {
+const BottomNavBar = ({ activeTab, onSelectTab, onOpenPlayer, isCreateModalOpen = false }) => {
   const [currentTrack, setCurrentTrack] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(230);
 
   useEffect(() => {
-    // Sync initial state on mount
     if (typeof audioPlayer?.getCurrentTrack === 'function') {
-      setCurrentTrack(audioPlayer.getCurrentTrack());
+      const initialTrack = audioPlayer.getCurrentTrack();
+      if (initialTrack) setCurrentTrack(initialTrack);
     }
     if (typeof audioPlayer?.getIsPlaying === 'function') {
       setIsPlaying(audioPlayer.getIsPlaying());
     }
 
-    // Subscribe to status and progress updates from audioPlayer
     if (typeof audioPlayer?.addListener !== 'function') return;
 
     const unsubscribe = audioPlayer.addListener((event, data) => {
-      if (data?.track) {
-        setCurrentTrack(data.track);
-      }
-      if (data?.isPlaying !== undefined) {
-        setIsPlaying(!!data.isPlaying);
-      }
-      if (data?.currentTime !== undefined) {
-        setCurrentTime(data.currentTime);
-      }
-      if (data?.duration !== undefined) {
-        setDuration(data.duration);
-      }
+      if (data?.track) setCurrentTrack(data.track);
+      if (data?.isPlaying !== undefined) setIsPlaying(!!data.isPlaying);
+      if (data?.currentTime !== undefined) setCurrentTime(data.currentTime);
+      if (data?.duration !== undefined) setDuration(data.duration);
     });
 
     return () => {
@@ -51,41 +43,50 @@ const BottomNavBar = ({ activeTab, onSelectTab, onOpenPlayer }) => {
   const tabs = [
     { id: TABS.HOME, label: 'Home', icon: '🏠' },
     { id: TABS.SEARCH, label: 'Search', icon: '🔍' },
-    { id: TABS.LIBRARY, label: 'Your Library', icon: '📚' },
-    { id: TABS.CREATE, label: 'Create', icon: '➕' },
+    { id: TABS.LIBRARY, label: 'Your Library', icon: '❙❙❚' },
+    { id: TABS.CREATE, label: 'Create', icon: isCreateModalOpen ? '✕' : '➕' },
   ];
 
   const handleTogglePlay = (e) => {
-    e.stopPropagation();
+    if (e && typeof e.stopPropagation === 'function') {
+      e.stopPropagation();
+    }
     if (typeof audioPlayer?.togglePlay === 'function') {
       audioPlayer.togglePlay(currentTrack);
     }
   };
 
+  const handleOpenPlayerModal = () => {
+    if (typeof onOpenPlayer === 'function') {
+      onOpenPlayer();
+    }
+  };
+
   const progressPercentage = Math.min(
     100,
-    ((currentTime || 0) / (duration || 230)) * 100
+    Math.max(0, ((currentTime || 0) / (duration || 230)) * 100)
   );
+
+  const artworkSource = getArtworkSource(currentTrack?.artwork);
 
   return (
     <View style={styles.wrapper}>
-      {/* Embedded Mini Player (Floating Spotify-like Card) */}
-      {currentTrack && (
+      {/* Mini Player */}
+      {currentTrack && !isCreateModalOpen && (
         <TouchableOpacity
           style={styles.miniPlayerContainer}
-          activeOpacity={0.9}
-          onPress={onOpenPlayer}
+          activeOpacity={0.85}
+          onPress={handleOpenPlayerModal}
         >
-          <Image
-            source={{
-              uri:
-                currentTrack.artwork ||
-                'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&q=80',
-            }}
-            style={styles.artwork}
-          />
+          {artworkSource ? (
+            <Image source={artworkSource} style={styles.artwork} />
+          ) : (
+            <View style={[styles.artwork, styles.placeholderBox]}>
+              <Text style={styles.placeholderSymbol}>♪</Text>
+            </View>
+          )}
 
-          <View style={styles.trackInfo}>
+          <View style={styles.trackInfo} pointerEvents="none">
             <Text style={styles.trackTitle} numberOfLines={1}>
               {currentTrack.title || 'Unknown Track'}
             </Text>
@@ -97,13 +98,13 @@ const BottomNavBar = ({ activeTab, onSelectTab, onOpenPlayer }) => {
           <TouchableOpacity
             style={styles.playButton}
             onPress={handleTogglePlay}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            activeOpacity={0.7}
           >
             <Text style={styles.playIcon}>{isPlaying ? '⏸' : '▶'}</Text>
           </TouchableOpacity>
 
-          {/* Bottom Progress Bar */}
-          <View style={styles.progressBarBackground}>
+          <View style={styles.progressBarBackground} pointerEvents="none">
             <View
               style={[
                 styles.progressBarFill,
@@ -114,26 +115,36 @@ const BottomNavBar = ({ activeTab, onSelectTab, onOpenPlayer }) => {
         </TouchableOpacity>
       )}
 
-      {/* Bottom Navigation Tab Bar */}
+      {/* Navigation Tab Bar */}
       <View style={styles.container}>
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
+          const isCreateBtn = tab.id === TABS.CREATE;
+
           return (
             <TouchableOpacity
               key={tab.id}
               style={styles.tabButton}
               activeOpacity={0.7}
-              onPress={() => onSelectTab(tab.id)}
+              onPress={() => onSelectTab && onSelectTab(tab.id)}
             >
-              <Text style={[styles.tabIcon, isActive && styles.activeTabIcon]}>
-                {tab.icon}
-              </Text>
-              <Text
-                style={[styles.tabLabel, isActive && styles.activeTabLabel]}
-                numberOfLines={1}
-              >
-                {tab.label}
-              </Text>
+              {isCreateModalOpen && isCreateBtn ? (
+                <View style={styles.closeCircle}>
+                  <Text style={styles.closeIcon}>✕</Text>
+                </View>
+              ) : (
+                <>
+                  <Text style={[styles.tabIcon, isActive && styles.activeTabIcon]}>
+                    {tab.icon}
+                  </Text>
+                  <Text
+                    style={[styles.tabLabel, isActive && styles.activeTabLabel]}
+                    numberOfLines={1}
+                  >
+                    {tab.label}
+                  </Text>
+                </>
+              )}
             </TouchableOpacity>
           );
         })}
@@ -146,29 +157,33 @@ const styles = StyleSheet.create({
   wrapper: {
     backgroundColor: 'transparent',
   },
-  /* Floating Mini Player Styles */
   miniPlayerContainer: {
     position: 'relative',
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#212121',
+    backgroundColor: '#3D382B',
     marginHorizontal: 8,
     marginBottom: 6,
     height: 56,
     borderRadius: 8,
     paddingHorizontal: 10,
     overflow: 'hidden',
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 5,
+    zIndex: 10,
   },
   artwork: {
     width: 40,
     height: 40,
     borderRadius: 4,
     backgroundColor: '#333',
+  },
+  placeholderBox: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#282828',
+  },
+  placeholderSymbol: {
+    color: '#B3B3B3',
+    fontSize: 16,
   },
   trackInfo: {
     flex: 1,
@@ -187,6 +202,7 @@ const styles = StyleSheet.create({
   },
   playButton: {
     padding: 8,
+    zIndex: 20,
   },
   playIcon: {
     color: '#FFF',
@@ -204,13 +220,12 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: '#1DB954',
   },
-  /* Navigation Tab Bar Styles */
   container: {
     flexDirection: 'row',
     height: 62,
-    backgroundColor: '#0F0F0F',
-    borderTopWidth: 1,
-    borderTopColor: '#202020',
+    backgroundColor: '#000000',
+    borderTopWidth: 0.5,
+    borderTopColor: '#1A1A1A',
     paddingHorizontal: SPACE?.sm || 8,
     paddingBottom: 4,
     alignItems: 'center',
@@ -223,22 +238,33 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   tabIcon: {
-    fontSize: 20,
+    fontSize: 18,
     marginBottom: 3,
-    opacity: 0.65,
+    color: '#B3B3B3',
   },
   activeTabIcon: {
-    opacity: 1,
-    transform: [{ scale: 1.08 }],
+    color: '#FFFFFF',
   },
   tabLabel: {
-    color: COLORS?.textMuted || '#B3B3B3',
+    color: '#B3B3B3',
     fontSize: 10,
-    fontWeight: '600',
-    letterSpacing: 0.2,
+    fontWeight: '500',
   },
   activeTabLabel: {
-    color: COLORS?.white || '#FFF',
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+  },
+  closeCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeIcon: {
+    color: '#000000',
+    fontSize: 16,
     fontWeight: 'bold',
   },
 });

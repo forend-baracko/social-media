@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, SPACE, RADIUS } from '../../constants/theme';
+import { getArtworkSource } from '../../utils/artworkHelper';
 import SwipeableTrackRow from '../player/SwipeableTrackRow';
 import audioPlayer from '../../services/audioPlayer';
 
@@ -111,7 +112,7 @@ const PlaylistDetailModal = ({
             <View style={styles.artworkBox}>
               {playlist.artwork || playlist.cover ? (
                 <Image
-                  source={{ uri: playlist.artwork || playlist.cover }}
+                  source={getArtworkSource(playlist.artwork || playlist.cover)}
                   style={styles.artworkImage}
                 />
               ) : (

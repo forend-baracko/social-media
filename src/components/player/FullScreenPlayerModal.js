@@ -8,6 +8,7 @@ import {
   Modal,
   ScrollView,
   Dimensions,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import audioPlayer, { REPEAT_MODE } from '../../services/audioPlayer';
@@ -30,8 +31,8 @@ export default function FullScreenPlayerModal({
   const [isPlaying, setIsPlaying] = useState(propIsPlaying);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(230);
-  const [isShuffle, setIsShuffle] = useState(false);
-  const [repeatMode, setRepeatMode] = useState(REPEAT_MODE.OFF);
+  const [isShuffle, setIsShuffle] = useState(audioPlayer.getIsShuffle());
+  const [repeatMode, setRepeatMode] = useState(audioPlayer.getRepeatMode());
   const [isQueueModalVisible, setIsQueueModalVisible] = useState(false);
 
   // Sync state whenever modal opens or props change
@@ -40,6 +41,8 @@ export default function FullScreenPlayerModal({
       const active = audioPlayer?.getCurrentTrack?.() || propTrack;
       if (active) setTrack(active);
       setIsPlaying(audioPlayer?.getIsPlaying?.() ?? propIsPlaying);
+      setIsShuffle(audioPlayer.getIsShuffle());
+      setRepeatMode(audioPlayer.getRepeatMode());
     }
   }, [visible, propTrack, propIsPlaying]);
 
@@ -121,40 +124,7 @@ export default function FullScreenPlayerModal({
 
   const renderRepeatIcon = () => {
     if (repeatMode === REPEAT_MODE.ONE) return '🔂';
-    if (repeatMode === REPEAT_MODE.ALL) return '🔁';
     return '🔁';
-  };
-
-  const renderLyricsContent = () => {
-    const lyricsData = currentActiveTrack?.lyrics;
-
-    if (!lyricsData) {
-      return (
-        <Text style={styles.lyricsText}>
-          {`I can't stop thinking 'bout you...\nEvery single night and day...\nWhen the silence fills the room...\nI hear your voice again.`}
-        </Text>
-      );
-    }
-
-    if (Array.isArray(lyricsData)) {
-      return lyricsData.map((lineObj, idx) => {
-        const textContent =
-          typeof lineObj === 'string'
-            ? lineObj
-            : lineObj?.text || lineObj?.line || '';
-        return (
-          <Text key={idx} style={styles.lyricsLineText}>
-            {textContent}
-          </Text>
-        );
-      });
-    }
-
-    if (typeof lyricsData === 'string') {
-      return <Text style={styles.lyricsText}>{lyricsData}</Text>;
-    }
-
-    return <Text style={styles.lyricsText}>No lyrics available.</Text>;
   };
 
   return (
@@ -206,6 +176,49 @@ export default function FullScreenPlayerModal({
               <Text style={styles.artist} numberOfLines={1}>
                 {currentActiveTrack?.artist || 'Unknown Artist'}
               </Text>
+              {currentActiveTrack?.source === 'audius' ? (
+                <Text style={styles.sourceCredit}>
+                  Audius · Full track ·{' '}
+                  <Text
+                    style={styles.sourceCreditLink}
+                    onPress={() =>
+                      Linking.openURL(currentActiveTrack.source_url).catch((error) =>
+                        console.warn('Could not open Audius source:', error)
+                      )
+                    }
+                    accessibilityRole="link"
+                  >
+                    View on Audius
+                  </Text>
+                </Text>
+              ) : currentActiveTrack?.source === 'archive' ? (
+                <Text style={styles.sourceCredit}>
+                  Internet Archive · {currentActiveTrack.licenseName || 'Open license'} ·{' '}
+                  <Text
+                    style={styles.sourceCreditLink}
+                    onPress={() =>
+                      Linking.openURL(currentActiveTrack.source_url).catch((error) =>
+                        console.warn('Could not open Internet Archive source:', error)
+                      )
+                    }
+                    accessibilityRole="link"
+                  >
+                    Source
+                  </Text>
+                  {' · '}
+                  <Text
+                    style={styles.sourceCreditLink}
+                    onPress={() =>
+                      Linking.openURL(currentActiveTrack.license).catch((error) =>
+                        console.warn('Could not open track license:', error)
+                      )
+                    }
+                    accessibilityRole="link"
+                  >
+                    License
+                  </Text>
+                </Text>
+              ) : null}
             </View>
             <TouchableOpacity
               onPress={() =>
@@ -263,7 +276,12 @@ export default function FullScreenPlayerModal({
 
           {/* Playback Controls */}
           <View style={styles.controlsRow}>
-            <TouchableOpacity onPress={handleToggleShuffle} style={styles.smallControlBtn}>
+            <TouchableOpacity
+              onPress={handleToggleShuffle}
+              style={styles.smallControlBtn}
+              accessibilityRole="button"
+              accessibilityLabel={isShuffle ? 'Turn shuffle off' : 'Turn shuffle on'}
+            >
               <Text style={[styles.smallControlIcon, isShuffle && styles.activeGreen]}>
                 🔀
               </Text>
@@ -290,7 +308,18 @@ export default function FullScreenPlayerModal({
               <Text style={styles.mainControlIcon}>⏭</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={handleToggleRepeat} style={styles.smallControlBtn}>
+            <TouchableOpacity
+              onPress={handleToggleRepeat}
+              style={styles.smallControlBtn}
+              accessibilityRole="button"
+              accessibilityLabel={
+                repeatMode === REPEAT_MODE.ONE
+                  ? 'Repeat current song'
+                  : repeatMode === REPEAT_MODE.ALL
+                    ? 'Repeat all songs'
+                    : 'Repeat off'
+              }
+            >
               <Text
                 style={[
                   styles.smallControlIcon,
@@ -315,17 +344,6 @@ export default function FullScreenPlayerModal({
             >
               <Text style={[styles.utilityIcon, { fontSize: 22, fontWeight: 'bold' }]}>≡</Text>
             </TouchableOpacity>
-          </View>
-
-          {/* Lyrics Card */}
-          <View style={styles.cardContainer}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>Lyrics</Text>
-              <TouchableOpacity style={styles.expandCardBtn}>
-                <Text style={styles.expandCardText}>FULLSCREEN</Text>
-              </TouchableOpacity>
-            </View>
-            <View style={styles.lyricsWrapper}>{renderLyricsContent()}</View>
           </View>
 
           {/* About Artist Card */}
@@ -436,6 +454,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
     marginTop: 4,
   },
+  sourceCredit: {
+    color: '#9A9A9A',
+    fontSize: 11,
+    marginTop: 5,
+  },
+  sourceCreditLink: {
+    color: '#B3B3B3',
+    textDecorationLine: 'underline',
+  },
   likeBtn: {
     padding: 6,
   },
@@ -528,43 +555,10 @@ const styles = StyleSheet.create({
     padding: 16,
     marginTop: 16,
   },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
   cardTitle: {
     color: '#FFF',
     fontSize: 16,
     fontWeight: 'bold',
-  },
-  expandCardBtn: {
-    backgroundColor: '#333',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  expandCardText: {
-    color: '#FFF',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  lyricsWrapper: {
-    marginTop: 4,
-  },
-  lyricsText: {
-    color: '#E0E0E0',
-    fontSize: 16,
-    lineHeight: 24,
-    fontWeight: '500',
-  },
-  lyricsLineText: {
-    color: '#E0E0E0',
-    fontSize: 16,
-    lineHeight: 26,
-    fontWeight: '500',
-    marginBottom: 4,
   },
   artistCardHeader: {
     flexDirection: 'row',

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MOCK_TRACKS } from '../services/audiomackService';
 import audioPlayer from '../services/audioPlayer';
+import { fetchAudiusTracks } from '../services/audiusService';
 
 const MusicContext = createContext(null);
 
@@ -21,7 +22,16 @@ const DEFAULT_PLAYLISTS = [
         icon: '💚',
         type: 'Playlist • Auto',
         isDefault: true,
-        tracks: [MOCK_TRACKS[0], MOCK_TRACKS[1], MOCK_TRACKS[2]],
+        tracks: [],
+    },
+    {
+        id: 'pl-all-songs',
+        title: 'All Songs',
+        description: 'Every song in your music library',
+        icon: '🎵',
+        type: 'Playlist • Your Library',
+        isDefault: true,
+        tracks: MOCK_TRACKS,
     },
     {
         id: 'pl-top-hits',
@@ -63,7 +73,8 @@ const DEFAULT_PLAYLISTS = [
 
 export const MusicProvider = ({ children }) => {
     const [playlists, setPlaylists] = useState(DEFAULT_PLAYLISTS);
-    const [likedTrackIds, setLikedTrackIds] = useState(['track-1', 'track-2', 'track-3']);
+    const [availableTracks, setAvailableTracks] = useState(MOCK_TRACKS);
+    const [likedTrackIds, setLikedTrackIds] = useState([]);
     const [userQueue, setUserQueue] = useState([]);
     const [recentTracks, setRecentTracks] = useState([]);
     const [toast, setToast] = useState(null); // { message, icon, id }
@@ -73,35 +84,119 @@ export const MusicProvider = ({ children }) => {
         const loadPersistedData = async () => {
             try {
                 const storedPlaylists = await AsyncStorage.getItem(STORAGE_KEYS.PLAYLISTS);
-                if (storedPlaylists) {
-                    const parsed = JSON.parse(storedPlaylists);
-                    if (Array.isArray(parsed) && parsed.length > 0) {
-                        setPlaylists(parsed);
-                    }
-                }
+                const storedRecents = await AsyncStorage.getItem(STORAGE_KEYS.RECENTS);
+                const parsedStoredPlaylists = storedPlaylists
+                    ? JSON.parse(storedPlaylists)
+                    : [];
+                const parsedStoredRecents = storedRecents
+                    ? JSON.parse(storedRecents)
+                    : [];
+                const cachedRemoteTracks = [
+                    ...(Array.isArray(parsedStoredPlaylists)
+                        ? parsedStoredPlaylists.flatMap((playlist) => playlist.tracks || [])
+                        : []),
+                    ...(Array.isArray(parsedStoredRecents) ? parsedStoredRecents : []),
+                ].filter(
+                        (track) =>
+                            ['jamendo', 'archive', 'deezer'].includes(track.source) &&
+                            typeof track.stream_url === 'string'
+                    );
+                const catalogById = new Map(
+                    [...cachedRemoteTracks, ...MOCK_TRACKS].map((track) => [
+                        track.id,
+                        track,
+                    ])
+                );
+                const currentCatalog = [...catalogById.values()];
+                setAvailableTracks(currentCatalog);
 
                 const storedLiked = await AsyncStorage.getItem(STORAGE_KEYS.LIKED_TRACKS);
+                let availableLikedIds = [];
                 if (storedLiked) {
                     const parsedLiked = JSON.parse(storedLiked);
                     if (Array.isArray(parsedLiked)) {
-                        setLikedTrackIds(parsedLiked);
+                        const trackIds = new Set(currentCatalog.map((track) => track.id));
+                        availableLikedIds = [...new Set(parsedLiked.filter((id) => trackIds.has(id)))];
                     }
                 }
+                setLikedTrackIds(availableLikedIds);
 
-                const storedRecents = await AsyncStorage.getItem(STORAGE_KEYS.RECENTS);
-                if (storedRecents) {
-                    const parsedRecents = JSON.parse(storedRecents);
-                    if (Array.isArray(parsedRecents)) {
-                        setRecentTracks(parsedRecents);
+                const currentTracksById = new Map(
+                    currentCatalog.map((track) => [track.id, track])
+                );
+                const defaultPlaylistsById = new Map(
+                    DEFAULT_PLAYLISTS.map((playlist) => [playlist.id, playlist])
+                );
+                let migratedPlaylists = DEFAULT_PLAYLISTS;
+                if (storedPlaylists) {
+                    const parsed = parsedStoredPlaylists;
+                    if (Array.isArray(parsed)) {
+                        const savedById = new Map(
+                            parsed.map((playlist) => [playlist.id, playlist])
+                        );
+                        migratedPlaylists = DEFAULT_PLAYLISTS.map((defaultPlaylist) => {
+                            const savedPlaylist = savedById.get(defaultPlaylist.id);
+                            if (!savedPlaylist) return defaultPlaylist;
+                            if (defaultPlaylist.id === 'pl-all-songs') {
+                                return { ...savedPlaylist, ...defaultPlaylist };
+                            }
+                            if (defaultPlaylist.id === 'pl-liked') {
+                                return {
+                                    ...savedPlaylist,
+                                    ...defaultPlaylist,
+                                    tracks: availableLikedIds
+                                        .map((id) => currentTracksById.get(id))
+                                        .filter(Boolean),
+                                };
+                            }
+                            return {
+                                ...savedPlaylist,
+                                tracks: (savedPlaylist.tracks || [])
+                                    .map((track) => currentTracksById.get(track.id))
+                                    .filter(Boolean),
+                            };
+                        });
+
+                        parsed.forEach((playlist) => {
+                            if (defaultPlaylistsById.has(playlist.id)) return;
+                            migratedPlaylists.push({
+                                ...playlist,
+                                tracks: (playlist.tracks || [])
+                                    .map((track) => currentTracksById.get(track.id))
+                                    .filter(Boolean),
+                            });
+                        });
                     }
-                } else {
-                    // Seed initial recents
-                    setRecentTracks([
-                        { ...MOCK_TRACKS[0], playedAt: Date.now() - 1000 * 60 * 12 },
-                        { ...MOCK_TRACKS[1], playedAt: Date.now() - 1000 * 60 * 45 },
-                        { ...MOCK_TRACKS[2], playedAt: Date.now() - 1000 * 60 * 180 },
-                        { ...MOCK_TRACKS[3], playedAt: Date.now() - 1000 * 60 * 60 * 24 },
+                }
+                setPlaylists(migratedPlaylists);
+                try {
+                    await AsyncStorage.multiSet([
+                        [STORAGE_KEYS.PLAYLISTS, JSON.stringify(migratedPlaylists)],
+                        [STORAGE_KEYS.LIKED_TRACKS, JSON.stringify(availableLikedIds)],
                     ]);
+                } catch (err) {
+                    console.warn('Error saving migrated music data:', err);
+                }
+
+                let migratedRecents = [];
+                if (storedRecents) {
+                    if (Array.isArray(parsedStoredRecents)) {
+                        migratedRecents = parsedStoredRecents
+                            .map((entry) => {
+                                const track = currentTracksById.get(entry.id);
+                                return track ? { ...track, playedAt: entry.playedAt } : null;
+                            })
+                            .filter(Boolean);
+                    }
+                }
+                setRecentTracks(migratedRecents);
+                try {
+                    await AsyncStorage.setItem(
+                        STORAGE_KEYS.RECENTS,
+                        JSON.stringify(migratedRecents)
+                    );
+                } catch (err) {
+                    console.warn('Error saving migrated recent tracks:', err);
                 }
             } catch (err) {
                 console.warn('Error loading persisted music data:', err);
@@ -110,6 +205,55 @@ export const MusicProvider = ({ children }) => {
 
         loadPersistedData();
     }, []);
+
+    useEffect(() => {
+        let isMounted = true;
+        Promise.allSettled([fetchAudiusTracks(80)])
+            .then(([audiusResult]) => {
+                if (!isMounted) return;
+                const remoteTracks = [];
+                if (audiusResult.status === 'fulfilled') {
+                    remoteTracks.push(...audiusResult.value);
+                } else {
+                    console.warn('Could not load Audius tracks:', audiusResult.reason);
+                }
+                if (remoteTracks.length === 0) return;
+
+                setAvailableTracks((previousTracks) => [
+                    ...new Map(
+                        [
+                            ...remoteTracks,
+                            ...previousTracks.filter((track) =>
+                                ['jamendo', 'archive', 'deezer'].includes(track.source)
+                            ),
+                            ...MOCK_TRACKS,
+                        ].map((track) => [track.id, track])
+                    ).values(),
+                ]);
+            });
+
+        return () => {
+            isMounted = false;
+        };
+    }, []);
+
+    useEffect(() => {
+        if (availableTracks.length <= MOCK_TRACKS.length) return;
+        setPlaylists((currentPlaylists) => {
+            const updated = currentPlaylists.map((playlist) =>
+                playlist.id === 'pl-all-songs'
+                    ? { ...playlist, tracks: availableTracks }
+                    : playlist
+            );
+            AsyncStorage.setItem(
+                STORAGE_KEYS.PLAYLISTS,
+                JSON.stringify(updated)
+            ).catch((error) => {
+                console.warn('Error saving music catalog to library:', error);
+            });
+            return updated;
+        });
+    }, [availableTracks]);
 
     // Helper: Show floating toast
     const showToast = useCallback((message, icon = '✓') => {
@@ -255,15 +399,20 @@ export const MusicProvider = ({ children }) => {
     const addToQueue = useCallback((track) => {
         if (!track) return;
         setUserQueue(prev => [...prev, track]);
+        const playbackQueue = audioPlayer.getQueue();
+        const currentIndex = audioPlayer.getCurrentIndex();
+        audioPlayer.setQueue([...playbackQueue, track], currentIndex);
         showToast(`Added to queue: "${track.title}"`, '⤹');
     }, [showToast]);
 
     const removeFromQueue = useCallback((index) => {
         setUserQueue(prev => prev.filter((_, idx) => idx !== index));
+        audioPlayer.removeFromQueue(index);
     }, []);
 
     const clearQueue = useCallback(() => {
         setUserQueue([]);
+        audioPlayer.clearQueue();
         showToast('Queue cleared', '✓');
     }, [showToast]);
 
@@ -302,6 +451,7 @@ export const MusicProvider = ({ children }) => {
 
     const value = {
         playlists,
+        availableTracks,
         createPlaylist,
         deletePlaylist,
         addTrackToPlaylist,

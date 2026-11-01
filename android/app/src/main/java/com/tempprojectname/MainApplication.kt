@@ -12,7 +12,7 @@ class MainApplication : Application(), ReactApplication {
   override val reactHost: ReactHost by lazy {
     getDefaultReactHost(
       context = applicationContext,
-      packageList = PackageList(this).packages, // Autolinking automatically includes react-native-sound!
+      packageList = PackageList(this).packages,
     )
   }
 

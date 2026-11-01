@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS, SPACE, RADIUS } from '../../constants/theme';
 import { MOCK_TRACKS } from '../../services/audiomackService';
+import { getArtworkSource } from '../../utils/artworkHelper';
 
 const FRIENDS_ONLINE = [
     {
@@ -190,7 +191,7 @@ const MessagesModal = ({
                                                 activeOpacity={0.8}
                                                 onPress={() => onPlayTrack && onPlayTrack(m.track)}
                                             >
-                                                <Image source={{ uri: m.track.artwork }} style={styles.chatTrackArt} />
+                                                <Image source={getArtworkSource(m.track.artwork)} style={styles.chatTrackArt} />
                                                 <View style={styles.chatTrackMeta}>
                                                     <Text style={styles.chatTrackTitle} numberOfLines={1}>{m.track.title}</Text>
                                                     <Text style={styles.chatTrackArtist} numberOfLines={1}>{m.track.artist}</Text>
